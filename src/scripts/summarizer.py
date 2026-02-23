@@ -7,6 +7,17 @@ import nltk
 # Force UTF-8 encoding for stdout on Windows
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
+# Download NLTK data only if not present
+def setup_nltk():
+    try:
+        nltk.data.find('tokenizers/punkt')
+        nltk.data.find('tokenizers/punkt_tab')
+    except (LookupError, AttributeError):
+        nltk.download('punkt', quiet=True)
+        nltk.download('punkt_tab', quiet=True)
+
+setup_nltk()
+
 def summarize_article(url):
     try:
         article = Article(url)

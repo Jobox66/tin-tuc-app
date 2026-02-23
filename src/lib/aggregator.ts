@@ -37,8 +37,8 @@ export async function aggregateNews(): Promise<NewsItem[]> {
                 const timestamp = pubDate.getTime();
 
                 try {
-                    // Call Python summarizer
-                    const pythonPath = path.join(process.cwd(), '.venv', 'Scripts', 'python.exe');
+                    // Call Python summarizer - Use environment variable or fallback to local venv
+                    const pythonPath = process.env.PYTHON_PATH || path.join(process.cwd(), '.venv', process.platform === 'win32' ? 'Scripts' : 'bin', 'python');
                     const scriptPath = path.join(process.cwd(), 'src', 'scripts', 'summarizer.py');
                     const resultJson = execSync(`"${pythonPath}" "${scriptPath}" "${url}"`, { encoding: 'utf8' });
                     const result = JSON.parse(resultJson);

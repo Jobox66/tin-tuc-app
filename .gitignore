@@ -44,3 +44,6 @@ next-env.d.ts
 
 # brain session data (local only)
 .brain/session.json
+
+# python
+.venv/
