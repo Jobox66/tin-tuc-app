@@ -1,36 +1,118 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Tin Tức App
 
-## Getting Started
+Web application quản lý và hiển thị tin tức, được xây dựng với Next.js và PostgreSQL.
 
-First, run the development server:
+## 🚀 Tech Stack
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **Frontend:** Next.js 16 (App Router) + TypeScript
+- **Styling:** TailwindCSS
+- **Database:** PostgreSQL
+- **ORM:** Prisma
+- **Authentication:** NextAuth.js
+- **Code Quality:** ESLint
+
+## 📁 Cấu trúc thư mục
+
+```
+tin-tuc-app/
+├── src/
+│   ├── app/              # Next.js App Router pages
+│   ├── components/       # React components
+│   ├── lib/             # Utilities & configs
+│   ├── services/        # Business logic
+│   ├── types/           # TypeScript types
+│   └── utils/           # Helper functions
+├── prisma/              # Database schema
+├── docs/                # Documentation
+│   ├── specs/          # Feature specifications
+│   └── architecture/   # Architecture docs
+├── public/              # Static assets
+└── .brain/             # AI context storage
+
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 🛠️ Cài đặt
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Yêu cầu
+- Node.js 18+ 
+- PostgreSQL 15+
+- npm hoặc yarn
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Bước 1: Clone và cài dependencies
 
-## Learn More
+```bash
+cd tin-tuc-app
+npm install
+```
 
-To learn more about Next.js, take a look at the following resources:
+### Bước 2: Cấu hình database
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Tạo database PostgreSQL:
+```sql
+CREATE DATABASE tin_tuc_db;
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+2. Copy `.env.example` thành `.env.local`:
+```bash
+cp .env.example .env.local
+```
 
-## Deploy on Vercel
+3. Cập nhật `DATABASE_URL` trong `.env.local`:
+```
+DATABASE_URL="postgresql://your_user:your_password@localhost:5432/tin_tuc_db"
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Bước 3: Chạy database migration
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npx prisma migrate dev --name init
+npx prisma generate
+```
+
+## 🏃 Chạy ứng dụng
+
+### Development mode:
+```bash
+npm run dev
+```
+
+Mở browser tại: **http://localhost:3000**
+
+### Build production:
+```bash
+npm run build
+npm start
+```
+
+## 📚 Scripts
+
+| Command | Mô tả |
+|---------|-------|
+| `npm run dev` | Chạy development server |
+| `npm run build` | Build production |
+| `npm start` | Chạy production server |
+| `npm run lint` | Check linting errors |
+| `npx prisma studio` | Mở Prisma Studio (database GUI) |
+| `npx prisma migrate dev` | Tạo migration mới |
+| `npx prisma generate` | Generate Prisma Client |
+
+## 🔐 Environment Variables
+
+Xem file `.env.example` để biết danh sách đầy đủ các biến môi trường cần thiết.
+
+## 📖 Documentation
+
+- [Architecture Overview](./docs/architecture/system_overview.md)
+- [Feature Specs](./docs/specs/)
+
+## 🤝 Contributing
+
+Khi thêm tính năng mới:
+1. Gõ `/plan` để thiết kế
+2. Gõ `/code` để implement
+3. Gõ `/test` để kiểm thử
+4. Gõ `/save-brain` để lưu knowledge
+
+## 📝 License
+
+Private project

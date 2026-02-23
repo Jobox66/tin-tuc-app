@@ -1,65 +1,119 @@
+import { getNewsFromSheets, NewsItem } from "@/lib/google-sheets";
 import Image from "next/image";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const news: NewsItem[] = await getNewsFromSheets();
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 font-sans text-zinc-900 dark:text-zinc-100 selection:bg-indigo-100 dark:selection:bg-indigo-900">
+      {/* Header */}
+      <nav className="sticky top-0 z-50 w-full border-b border-zinc-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md">
+        <div className="mx-auto max-w-5xl px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
+              <span className="text-white font-bold text-lg">T</span>
+            </div>
+            <h1 className="text-xl font-bold tracking-tight">Tin Tức App</h1>
+          </div>
+          <div className="text-sm text-zinc-500 dark:text-zinc-400 font-medium">
+            Google Sheets Power
+          </div>
+        </div>
+      </nav>
+
+      {/* Main Content */}
+      <main className="mx-auto max-w-5xl px-6 py-12">
+        <header className="mb-12">
+          <h2 className="text-4xl font-extrabold tracking-tight sm:text-5xl mb-4 text-zinc-900 dark:text-zinc-50">
+            Tổng hợp tin tức mới nhất
+          </h2>
+          <p className="text-lg text-zinc-600 dark:text-zinc-400 max-w-2xl">
+            Cập nhật những thông tin nóng hổi nhất được tổng hợp tự động từ Google Sheets của bạn.
+          </p>
+        </header>
+
+        {news.length === 0 ? (
+          <div className="rounded-2xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 p-12 text-center">
+            <p className="text-zinc-500 mb-2">Chưa có tin tức nào được tìm thấy.</p>
+            <p className="text-sm text-zinc-400">Hãy kiểm tra cấu hình Google Sheets trong file .env</p>
+          </div>
+        ) : (
+          <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+            {news.map((item, index) => (
+              <article
+                key={index}
+                className="group flex flex-col bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden transition-all duration-300 hover:shadow-xl hover:shadow-indigo-500/10 hover:-translate-y-1"
+              >
+                {item.thumbnail ? (
+                  <div className="aspect-video relative overflow-hidden">
+                    <img
+                      src={item.thumbnail}
+                      alt={item.title}
+                      className="object-cover w-full h-full transition-transform duration-500 group-hover:scale-110"
+                    />
+                  </div>
+                ) : (
+                  <div className="aspect-video bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+                    <span className="text-zinc-400 text-sm">No Image</span>
+                  </div>
+                )}
+
+                <div className="p-6 flex flex-col flex-1">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+                      News
+                    </span>
+                    <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                    <time className="text-xs text-zinc-500 dark:text-zinc-400">
+                      {item.date}
+                    </time>
+                  </div>
+
+                  <h3 className="text-xl font-bold mb-3 line-clamp-2 leading-snug group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                    <a href={item.url} target="_blank" rel="noopener noreferrer">
+                      {item.title}
+                    </a>
+                  </h3>
+
+                  <p className="text-zinc-600 dark:text-zinc-400 text-sm line-clamp-3 mb-6 flex-1">
+                    {item.summary}
+                  </p>
+
+                  <div className="mt-auto">
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center text-sm font-bold text-zinc-900 dark:text-zinc-50 group/link"
+                    >
+                      Đọc chi tiết
+                      <svg
+                        className="ml-2 w-4 h-4 transition-transform group-hover/link:translate-x-1"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                      </svg>
+                    </a>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </main>
+
+      {/* Footer */}
+      <footer className="border-t border-zinc-200 dark:border-zinc-800 py-12 mt-20">
+        <div className="mx-auto max-w-5xl px-6 text-center">
+          <p className="text-zinc-500 text-sm">
+            © 2026 Tin Tức App. Được build bằng Next.js và Google Sheets.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      </footer>
     </div>
   );
 }

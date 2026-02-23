@@ -1,0 +1,67 @@
+{
+  "project": {
+    "name": "tin-tuc-app",
+    "type": "web-app",
+    "status": "in-progress",
+    "description": "Simple news aggregator built with Next.js and Google Sheets"
+  },
+  "tech_stack": {
+    "frontend": {
+      "framework": "Next.js 16 (App Router)",
+      "language": "TypeScript",
+      "styling": "TailwindCSS",
+      "icons": "Lucide React (planned)"
+    },
+    "backend": {
+      "framework": "Next.js Server Actions / API Routes",
+      "auth": "NextAuth.js v4"
+    },
+    "database": {
+      "engine": "Google Sheets",
+      "library": "googleapis",
+      "connection": "Google Auth / Sheet ID"
+    }
+  },
+  "features": [
+    {
+      "name": "Authentication",
+      "status": "planned",
+      "description": "Email/Password login with NextAuth"
+    },
+    {
+      "name": "News Management",
+      "status": "planned",
+      "description": "Admin CRUD operations for news articles",
+      "spec_file": "implementation_plan.md"
+    }
+  ],
+  "database_schema": {
+    "tables": [
+      "User"
+    ],
+    "planned_tables": [
+      "Article",
+      "Category"
+    ]
+  },
+  "knowledge_items": {
+    "gotchas": [
+      {
+        "issue": "Prisma 7.2.0 config breaking change",
+        "solution": "Downgraded to Prisma 6 and removed prisma.config.ts"
+      },
+      {
+        "issue": "PostgreSQL failing on localhost",
+        "solution": "Used 127.0.0.1 explicitly in connection string"
+      },
+      {
+        "issue": "PowerShell not recognizing npx/node",
+        "solution": "Refreshed environment variables without restart"
+      }
+    ]
+  },
+  "meta": {
+    "last_updated": "2026-01-19T15:50:00+07:00",
+    "version": "1.0.0"
+  }
+}
