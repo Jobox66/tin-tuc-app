@@ -6,6 +6,7 @@ export interface NewsItem {
   url: string;
   date: string;
   thumbnail: string;
+  timestamp: number;
 }
 
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly'];
@@ -38,10 +39,10 @@ export async function getNewsFromSheets(): Promise<NewsItem[]> {
   const sheets = google.sheets({ version: 'v4', auth });
 
   try {
-    console.log('Fetching data from Google Sheets: A2:E...');
+    console.log('Fetching data from Google Sheets: A2:F...');
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Sheet1!A2:E',
+      range: 'Sheet1!A2:F',
     });
     console.log('Google Sheets API response received.');
 
@@ -58,6 +59,7 @@ export async function getNewsFromSheets(): Promise<NewsItem[]> {
       url: row[2] || '',
       date: row[3] || '',
       thumbnail: row[4] || '',
+      timestamp: row[5] ? parseInt(row[5], 10) : 0,
     }));
   } catch (error) {
     console.error('Error fetching data from Google Sheets:', error);
@@ -87,7 +89,7 @@ export async function saveNewsToSheets(newsItems: NewsItem[]): Promise<void> {
     // 1. Clear existing data starting from A2
     await sheets.spreadsheets.values.clear({
       spreadsheetId,
-      range: 'Sheet1!A2:E',
+      range: 'Sheet1!A2:F',
     });
 
     // 2. Prepare values for update
@@ -96,14 +98,15 @@ export async function saveNewsToSheets(newsItems: NewsItem[]): Promise<void> {
       item.summary,
       item.url,
       item.date,
-      item.thumbnail
+      item.thumbnail,
+      item.timestamp.toString()
     ]);
 
     // 3. Update sheet with new data
     if (values.length > 0) {
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: 'Sheet1!A2:E',
+        range: 'Sheet1!A2:F',
         valueInputOption: 'RAW',
         requestBody: {
           values,

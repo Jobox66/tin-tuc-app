@@ -1,5 +1,7 @@
 import Parser from 'rss-parser';
 import { NewsItem } from './google-sheets';
+import { execSync } from 'child_process';
+import path from 'path';
 
 const parser = new Parser();
 
@@ -22,30 +24,53 @@ export async function aggregateNews(): Promise<NewsItem[]> {
             console.log(`Fetching from: ${source.name}...`);
             const feed = await parser.parseURL(source.url);
 
-            const items = feed.items.map(item => {
-                // Extract thumbnail from content snippets if possible, or use a default
-                // RSS content often has <img src="..."> in the summary
-                const thumbnail = extractThumbnail(item.content || item.summary || '');
+            // Take first 30 items per source for expanded news
+            const feedItems = feed.items.slice(0, 30);
 
-                return {
+            for (const item of feedItems) {
+                const url = item.link || '';
+                console.log(`Summarizing: ${item.title}...`);
+
+                let summary = cleanSummary(item.contentSnippet || item.summary || '');
+                let thumbnail = extractThumbnail(item.content || item.summary || '');
+                const pubDate = item.pubDate ? new Date(item.pubDate) : new Date();
+                const timestamp = pubDate.getTime();
+
+                try {
+                    // Call Python summarizer
+                    const pythonPath = path.join(process.cwd(), '.venv', 'Scripts', 'python.exe');
+                    const scriptPath = path.join(process.cwd(), 'src', 'scripts', 'summarizer.py');
+                    const resultJson = execSync(`"${pythonPath}" "${scriptPath}" "${url}"`, { encoding: 'utf8' });
+                    const result = JSON.parse(resultJson);
+
+                    if (result.success) {
+                        summary = result.summary;
+                        if (result.image) {
+                            thumbnail = result.image;
+                        }
+                    }
+                } catch (summError) {
+                    console.error(`Summarization failed for ${url}:`, summError);
+                }
+
+                allNews.push({
                     title: item.title || '',
-                    summary: cleanSummary(item.contentSnippet || item.summary || ''),
-                    url: item.link || '',
-                    date: item.pubDate ? new Date(item.pubDate).toLocaleString('vi-VN') : '',
-                    thumbnail: thumbnail
-                };
-            });
-
-            allNews.push(...items);
+                    summary: summary,
+                    url: url,
+                    date: pubDate.toLocaleString('vi-VN'),
+                    thumbnail: thumbnail,
+                    timestamp: timestamp
+                });
+            }
         } catch (error) {
             console.error(`Error fetching from ${source.name}:`, error);
         }
     }
 
-    // Deduplicate by URL and sort by date (simple sort)
+    // Deduplicate by URL
     const uniqueNews = Array.from(new Map(allNews.map(item => [item.url, item])).values());
 
-    return uniqueNews.slice(0, 50); // Limit to top 50 for the sheet
+    return uniqueNews;
 }
 
 function extractThumbnail(content: string): string {
@@ -55,5 +80,5 @@ function extractThumbnail(content: string): string {
 
 function cleanSummary(summary: string): string {
     // Remove HTML tags and extra whitespace
-    return summary.replace(/<[^>]*>?/gm, '').trim().substring(0, 200) + (summary.length > 200 ? '...' : '');
+    return summary.replace(/<[^>]*>?/gm, '').trim().substring(0, 300) + (summary.length > 300 ? '...' : '');
 }
