@@ -7,6 +7,8 @@ export interface NewsItem {
   date: string;
   thumbnail: string;
   timestamp: number;
+  isHidden?: boolean;
+  isSaved?: boolean;
 }
 
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly', 'https://www.googleapis.com/auth/spreadsheets'];
@@ -39,10 +41,10 @@ export async function getNewsFromSheets(sheetName: string = 'Sheet1'): Promise<N
     const auth = getAuthClient();
     const sheets = google.sheets({ version: 'v4', auth });
 
-    console.log(`Fetching data from Google Sheets: ${sheetName}!A2:F...`);
+    console.log(`Fetching data from Google Sheets: ${sheetName}!A2:H...`);
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${sheetName}!A2:F`,
+      range: `${sheetName}!A2:H`,
     });
     console.log(`Google Sheets API response received for ${sheetName}.`);
 
@@ -59,6 +61,8 @@ export async function getNewsFromSheets(sheetName: string = 'Sheet1'): Promise<N
       date: row[3] || '',
       thumbnail: row[4] || '',
       timestamp: row[5] ? parseInt(row[5], 10) : 0,
+      isHidden: row[6] === 'TRUE',
+      isSaved: row[7] === 'TRUE',
     }));
   } catch (error) {
     console.error(`Error fetching data from ${sheetName}:`, error);
@@ -74,10 +78,10 @@ export async function saveNewsToSheets(newsItems: NewsItem[], sheetName: string 
     const auth = getAuthClient();
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // 1. Clear existing data
+    // 1. Clear existing data (A2:H)
     await sheets.spreadsheets.values.clear({
       spreadsheetId,
-      range: `${sheetName}!A2:F`,
+      range: `${sheetName}!A2:H`,
     });
 
     // 2. Prepare values
@@ -87,20 +91,22 @@ export async function saveNewsToSheets(newsItems: NewsItem[], sheetName: string 
       item.url,
       item.date,
       item.thumbnail,
-      item.timestamp.toString()
+      item.timestamp.toString(),
+      item.isHidden ? 'TRUE' : 'FALSE',
+      item.isSaved ? 'TRUE' : 'FALSE',
     ]);
 
     // 3. Update sheet
     if (values.length > 0) {
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `${sheetName}!A2:F`,
+        range: `${sheetName}!A2:H`,
         valueInputOption: 'RAW',
         requestBody: {
           values,
         },
       });
-      console.log(`Successfully saved ${values.length} news items to ${sheetName}.`);
+      console.log(`Successfully saved ${values.length} news items to ${sheetName} (including Hidden/Saved status).`);
     }
   } catch (error) {
     console.error(`Error saving data to ${sheetName}:`, error);
