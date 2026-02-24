@@ -9,24 +9,33 @@ async function sync() {
         console.log('Fetching existing news from Google Sheets...');
         const existingNews = await getNewsFromSheets();
         console.log(`Found ${existingNews.length} existing news items.`);
+        const existingUrls = existingNews.map(n => n.url);
 
-        // 2. Aggregate new news
-        const newNews = await aggregateNews();
-        console.log(`✅ Aggregated ${newNews.length} new news items.`);
+        // 2. Aggregate new news (passing existingUrls to skip re-summarizing)
+        const newNews = await aggregateNews(existingUrls);
+        console.log(`✅ Aggregated ${newNews.length} NEW news items (excluding existing).`);
 
         // 3. Merge, deduplicate and sort
-        // We use URL as the unique identifier
         const newsMap = new Map<string, NewsItem>();
 
         // Add existing first
         existingNews.forEach(item => newsMap.set(item.url, item));
-        // Add new ones (overwrites duplicates with newer summaries if needed, or just keeps uniqueness)
-        newNews.forEach(item => newsMap.set(item.url, item));
+        // Add new ones
+        newNews.forEach(item => {
+            if (!newsMap.has(item.url)) {
+                console.log(`Adding NEW item: ${item.title}`);
+            }
+            newsMap.set(item.url, item);
+        });
 
         const mergedNews = Array.from(newsMap.values());
 
-        // Sort by timestamp descending (newest first)
-        mergedNews.sort((a, b) => b.timestamp - a.timestamp);
+        // Sort by timestamp descending (newest first). Handle NaN cases.
+        mergedNews.sort((a, b) => {
+            const timeA = isNaN(a.timestamp) ? 0 : a.timestamp;
+            const timeB = isNaN(b.timestamp) ? 0 : b.timestamp;
+            return timeB - timeA;
+        });
 
         // Limit to 500 items to keep Google Sheets manageable
         const finalNews = mergedNews.slice(0, 500);

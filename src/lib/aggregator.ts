@@ -16,25 +16,41 @@ const SOURCES = [
     }
 ];
 
-export async function aggregateNews(): Promise<NewsItem[]> {
+export async function aggregateNews(existingUrls: string[] = []): Promise<NewsItem[]> {
     const allNews: NewsItem[] = [];
 
     for (const source of SOURCES) {
         try {
             console.log(`Fetching from: ${source.name}...`);
-            const feed = await parser.parseURL(source.url);
+            // Add cache-buster to URL
+            const urlWithCacheBuster = `${source.url}${source.url.includes('?') ? '&' : '?'}t=${Date.now()}`;
+            const feed = await parser.parseURL(urlWithCacheBuster);
 
             // Take first 30 items per source for expanded news
             const feedItems = feed.items.slice(0, 30);
 
             for (const item of feedItems) {
                 const url = item.link || '';
+
+                // Skip if already in existingUrls OR already added in this run
+                if (existingUrls.includes(url) || allNews.some(n => n.url === url)) {
+                    // We still need to include it in allNews if it's a "new" run, 
+                    // but wait, sync-news.ts handles the merge.
+                    // If we skip it here, it won't be in the newNews list.
+                    // That's fine, sync-news will keep the old one from existingNews.
+                    continue;
+                }
+
                 console.log(`Summarizing: ${item.title}...`);
 
                 let summary = cleanSummary(item.contentSnippet || item.summary || '');
                 let thumbnail = extractThumbnail(item.content || item.summary || '');
                 const pubDate = item.pubDate ? new Date(item.pubDate) : new Date();
                 const timestamp = pubDate.getTime();
+
+                if (isNaN(timestamp)) {
+                    console.warn(`Invalid date for ${url}: ${item.pubDate}`);
+                }
 
                 try {
                     // Call Python summarizer - Use environment variable or fallback to local venv
