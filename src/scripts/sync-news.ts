@@ -8,28 +8,31 @@ async function syncCategory(name: string, sources: NewsSource[], sheetName: stri
         console.log(`Fetching existing news from ${sheetName}...`);
         const existingNews = await getNewsFromSheets(sheetName);
         console.log(`Found ${existingNews.length} existing news items in ${sheetName}.`);
-        const existingUrls = existingNews.map(n => n.url);
+        const existingUrls = existingNews.map(n => n.url.trim());
 
         // 2. Aggregate new news (passing existingUrls to skip re-summarizing)
         const newNews = await aggregateNews(sources, existingUrls);
         console.log(`✅ Aggregated ${newNews.length} NEW news items for ${name}.`);
 
         if (newNews.length === 0) {
-            console.log(`No new items for ${name}. Skipping update.`);
+            console.log(`No new items for ${name} at this time. All items in feed are already in sheet.`);
             return;
         }
 
         // 3. Merge, deduplicate and sort
         const newsMap = new Map<string, NewsItem>();
 
-        // Add existing first
-        existingNews.forEach(item => newsMap.set(item.url, item));
+        // Add existing first (trimming URLs just in case)
+        existingNews.forEach(item => newsMap.set(item.url.trim(), item));
         // Add new ones
         newNews.forEach(item => {
-            if (!newsMap.has(item.url)) {
-                console.log(`Adding NEW item: ${item.title}`);
+            const url = item.url.trim();
+            if (!newsMap.has(url)) {
+                console.log(`[${name}] Adding NEW: ${item.title}`);
+            } else {
+                console.log(`[${name}] Updating existing: ${item.title}`);
             }
-            newsMap.set(item.url, item);
+            newsMap.set(url, { ...item, url });
         });
 
         const mergedNews = Array.from(newsMap.values());

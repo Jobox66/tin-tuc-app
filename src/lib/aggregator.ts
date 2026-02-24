@@ -46,18 +46,16 @@ export async function aggregateNews(sources: NewsSource[], existingUrls: string[
             const urlWithCacheBuster = `${source.url}${source.url.includes('?') ? '&' : '?'}t=${Date.now()}`;
             const feed = await parser.parseURL(urlWithCacheBuster);
 
-            // Take first 30 items per source for expanded news
-            const feedItems = feed.items.slice(0, 30);
+            // Take first 50 items per source
+            const feedItems = feed.items.slice(0, 50);
 
+            let skippedCount = 0;
             for (const item of feedItems) {
-                const url = item.link || '';
+                const url = (item.link || '').trim();
 
                 // Skip if already in existingUrls OR already added in this run
                 if (existingUrls.includes(url) || allNews.some(n => n.url === url)) {
-                    // We still need to include it in allNews if it's a "new" run, 
-                    // but wait, sync-news.ts handles the merge.
-                    // If we skip it here, it won't be in the newNews list.
-                    // That's fine, sync-news will keep the old one from existingNews.
+                    skippedCount++;
                     continue;
                 }
 
@@ -98,6 +96,7 @@ export async function aggregateNews(sources: NewsSource[], existingUrls: string[
                     timestamp: timestamp
                 });
             }
+            console.log(`Fetched ${feed.items.length} items from ${source.name}. Processed: ${feedItems.length}. New: ${feedItems.length - skippedCount}. Skipped: ${skippedCount}.`);
         } catch (error) {
             console.error(`Error fetching from ${source.name}:`, error);
         }
