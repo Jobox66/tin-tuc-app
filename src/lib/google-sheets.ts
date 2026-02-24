@@ -9,47 +9,46 @@ export interface NewsItem {
   timestamp: number;
 }
 
-const SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly'];
+const SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly', 'https://www.googleapis.com/auth/spreadsheets'];
 
-export async function getNewsFromSheets(): Promise<NewsItem[]> {
-  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
-  const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+function getAuthClient() {
+  const privateKey = process.env.GOOGLE_PRIVATE_KEY;
   const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
 
-  if (!spreadsheetId || !privateKey || !clientEmail) {
-    const missing = [];
-    if (!spreadsheetId) missing.push('GOOGLE_SHEET_ID');
-    if (!privateKey) missing.push('GOOGLE_PRIVATE_KEY');
-    if (!clientEmail) missing.push('GOOGLE_SERVICE_ACCOUNT_EMAIL');
-    console.warn(`Google Sheets configuration missing: ${missing.join(', ')}`);
-    return [];
+  if (!privateKey || !clientEmail) {
+    throw new Error('Google Sheets configuration missing: GOOGLE_PRIVATE_KEY or GOOGLE_SERVICE_ACCOUNT_EMAIL');
   }
 
-  // Handle both literal newlines and escaped \n
-  const formattedKey = privateKey.includes('\n')
-    ? privateKey
-    : privateKey.replace(/\\n/g, '\n');
+  // Robust formatting for private key
+  const formattedKey = privateKey
+    .replace(/^"|"$/g, '') // Remove surrounding quotes
+    .replace(/\\n/g, '\n'); // Replace literal \n with real newline
 
-  const auth = new google.auth.JWT({
+  return new google.auth.JWT({
     email: clientEmail,
     key: formattedKey,
     scopes: SCOPES,
   });
+}
 
-  const sheets = google.sheets({ version: 'v4', auth });
+export async function getNewsFromSheets(sheetName: string = 'Sheet1'): Promise<NewsItem[]> {
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+  if (!spreadsheetId) return [];
 
   try {
-    console.log('Fetching data from Google Sheets: A2:F...');
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    console.log(`Fetching data from Google Sheets: ${sheetName}!A2:F...`);
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Sheet1!A2:F',
+      range: `${sheetName}!A2:F`,
     });
-    console.log('Google Sheets API response received.');
+    console.log(`Google Sheets API response received for ${sheetName}.`);
 
     const rows = response.data.values;
-
     if (!rows || rows.length === 0) {
-      console.log('No data found in Google Sheets.');
+      console.log(`No data found in ${sheetName}.`);
       return [];
     }
 
@@ -62,37 +61,26 @@ export async function getNewsFromSheets(): Promise<NewsItem[]> {
       timestamp: row[5] ? parseInt(row[5], 10) : 0,
     }));
   } catch (error) {
-    console.error('Error fetching data from Google Sheets:', error);
+    console.error(`Error fetching data from ${sheetName}:`, error);
     return [];
   }
 }
 
-export async function saveNewsToSheets(newsItems: NewsItem[]): Promise<void> {
+export async function saveNewsToSheets(newsItems: NewsItem[], sheetName: string = 'Sheet1'): Promise<void> {
   const spreadsheetId = process.env.GOOGLE_SHEET_ID;
-  const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
-  const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-
-  if (!spreadsheetId || !privateKey || !clientEmail) {
-    console.warn('Google Sheets configuration missing. Cannot save news.');
-    return;
-  }
-
-  const auth = new google.auth.JWT({
-    email: clientEmail,
-    key: privateKey,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
-
-  const sheets = google.sheets({ version: 'v4', auth });
+  if (!spreadsheetId) return;
 
   try {
-    // 1. Clear existing data starting from A2
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    // 1. Clear existing data
     await sheets.spreadsheets.values.clear({
       spreadsheetId,
-      range: 'Sheet1!A2:F',
+      range: `${sheetName}!A2:F`,
     });
 
-    // 2. Prepare values for update
+    // 2. Prepare values
     const values = newsItems.map(item => [
       item.title,
       item.summary,
@@ -102,22 +90,20 @@ export async function saveNewsToSheets(newsItems: NewsItem[]): Promise<void> {
       item.timestamp.toString()
     ]);
 
-    // 3. Update sheet with new data
+    // 3. Update sheet
     if (values.length > 0) {
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: 'Sheet1!A2:F',
+        range: `${sheetName}!A2:F`,
         valueInputOption: 'RAW',
         requestBody: {
           values,
         },
       });
-      console.log(`Successfully saved ${values.length} news items to Google Sheets.`);
-    } else {
-      console.log('No news items to save.');
+      console.log(`Successfully saved ${values.length} news items to ${sheetName}.`);
     }
   } catch (error) {
-    console.error('Error saving data to Google Sheets:', error);
+    console.error(`Error saving data to ${sheetName}:`, error);
     throw error;
   }
 }

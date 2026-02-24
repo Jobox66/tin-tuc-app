@@ -4,10 +4,19 @@ import NewsFeed from "@/components/NewsFeed";
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const news: NewsItem[] = await getNewsFromSheets();
+  const generalNews: NewsItem[] = await getNewsFromSheets('Sheet1');
+  const financeNews: NewsItem[] = await getNewsFromSheets('Finance');
 
-  // Ensure sorted by timestamp descending
-  const sortedNews = [...news].sort((a, b) => b.timestamp - a.timestamp);
+  // Sorting helper
+  const sortByTimestamp = (items: NewsItem[]) =>
+    [...items].sort((a, b) => {
+      const timeA = isNaN(a.timestamp) ? 0 : a.timestamp;
+      const timeB = isNaN(b.timestamp) ? 0 : b.timestamp;
+      return timeB - timeA;
+    });
+
+  const sortedGeneral = sortByTimestamp(generalNews);
+  const sortedFinance = sortByTimestamp(financeNews);
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 font-sans text-zinc-900 dark:text-zinc-100 selection:bg-indigo-100 dark:selection:bg-indigo-900">
@@ -18,14 +27,14 @@ export default async function Home() {
             <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
               <span className="text-white font-bold text-lg">T</span>
             </div>
-            <h1 className="text-xl font-bold tracking-tight">Tin Tức App</h1>
+            <h1 className="text-xl font-bold tracking-tight">App Tin Tuc</h1>
           </div>
           <div className="flex items-center gap-4">
             <div className="text-sm text-zinc-500 dark:text-zinc-400 font-medium">
-              {news.length} bài báo
+              {generalNews.length + financeNews.length} bài báo
             </div>
-            <div className="text-sm text-zinc-500 dark:text-zinc-400 font-medium">
-              Google Sheets Power
+            <div className="px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-xs font-bold text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-800">
+              Multi-Tab Sync
             </div>
           </div>
         </div>
@@ -38,18 +47,21 @@ export default async function Home() {
             Tổng hợp tin tức mới nhất
           </h2>
           <p className="text-lg text-zinc-600 dark:text-zinc-400 max-w-2xl">
-            Tất cả các tin tức được cập nhật liên tục và tóm tắt bởi AI.
+            Tin tức đa lĩnh vực được cập nhật liên tục và tóm tắt bởi AI.
           </p>
         </header>
 
-        <NewsFeed initialNews={sortedNews} />
+        <NewsFeed
+          initialGeneral={sortedGeneral}
+          initialFinance={sortedFinance}
+        />
       </main>
 
       {/* Footer */}
       <footer className="border-t border-zinc-200 dark:border-zinc-800 py-12 mt-20">
         <div className="mx-auto max-w-[1650px] px-6 text-center">
           <p className="text-zinc-500 text-sm">
-            © 2026 Tin Tức App. Được build bằng Next.js và Google Sheets by DucTN.
+            © 2026 App Tin Tuc. Được build bằng Next.js và Google Sheets by DucTN.
           </p>
         </div>
       </footer>

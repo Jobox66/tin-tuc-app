@@ -5,7 +5,12 @@ import path from 'path';
 
 const parser = new Parser();
 
-const SOURCES = [
+export interface NewsSource {
+    name: string;
+    url: string;
+}
+
+export const GENERAL_SOURCES: NewsSource[] = [
     {
         name: 'VNExpress - Tin mới nhất',
         url: 'https://vnexpress.net/rss/tin-moi-nhat.rss',
@@ -16,10 +21,25 @@ const SOURCES = [
     }
 ];
 
-export async function aggregateNews(existingUrls: string[] = []): Promise<NewsItem[]> {
+export const FINANCE_SOURCES: NewsSource[] = [
+    {
+        name: 'Vietstock - Tin mới nhất',
+        url: 'https://vietstock.vn/rss/tin-moi-nhat.rss',
+    },
+    {
+        name: 'CafeF - Thị trường chứng khoán',
+        url: 'https://cafef.vn/thi-truong-chung-khoan.rss',
+    },
+    {
+        name: 'Báo Đầu tư - Chứng khoán',
+        url: 'https://baodautu.vn/chung-khoan/rss',
+    }
+];
+
+export async function aggregateNews(sources: NewsSource[], existingUrls: string[] = []): Promise<NewsItem[]> {
     const allNews: NewsItem[] = [];
 
-    for (const source of SOURCES) {
+    for (const source of sources) {
         try {
             console.log(`Fetching from: ${source.name}...`);
             // Add cache-buster to URL
