@@ -103,8 +103,8 @@ export default function NewsFeed({
                         <button
                             onClick={() => handleCategoryChange("general")}
                             className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 ${activeCategory === "general" && !showSavedOnly
-                                    ? "bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-400 shadow-md transform scale-100"
-                                    : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 scale-95"
+                                ? "bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-400 shadow-md transform scale-100"
+                                : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 scale-95"
                                 }`}
                         >
                             Tin Chung
@@ -112,8 +112,8 @@ export default function NewsFeed({
                         <button
                             onClick={() => handleCategoryChange("finance")}
                             className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 ${activeCategory === "finance" && !showSavedOnly
-                                    ? "bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-400 shadow-md transform scale-100"
-                                    : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 scale-95"
+                                ? "bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-400 shadow-md transform scale-100"
+                                : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 scale-95"
                                 }`}
                         >
                             Tài Chính
@@ -126,8 +126,8 @@ export default function NewsFeed({
                             setCurrentPage(1);
                         }}
                         className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-sm font-bold border transition-all duration-300 ${showSavedOnly
-                                ? "bg-indigo-600 text-white border-indigo-500 shadow-lg shadow-indigo-500/20"
-                                : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:border-indigo-500"
+                            ? "bg-indigo-600 text-white border-indigo-500 shadow-lg shadow-indigo-500/20"
+                            : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:border-indigo-500"
                             }`}
                     >
                         <svg className={`w-5 h-5 ${showSavedOnly ? "fill-current" : "fill-none"}`} stroke="currentColor" viewBox="0 0 24 24">
@@ -208,8 +208,8 @@ export default function NewsFeed({
                                     <button
                                         onClick={() => handleToggleStatus(item, 'isSaved')}
                                         className={`p-2 rounded-xl backdrop-blur-md border shadow-sm transition-all duration-300 ${item.isSaved
-                                                ? "bg-indigo-600 border-indigo-500 text-white"
-                                                : "bg-white/80 dark:bg-zinc-900/80 border-white/20 text-zinc-600 dark:text-zinc-400 hover:bg-white dark:hover:bg-zinc-800"
+                                            ? "bg-indigo-600 border-indigo-500 text-white opacity-100"
+                                            : "bg-white/80 dark:bg-zinc-900/80 border-white/20 text-zinc-600 dark:text-zinc-400 hover:bg-white dark:hover:bg-zinc-800 opacity-0 group-hover:opacity-100"
                                             }`}
                                         title={item.isSaved ? "Bỏ lưu" : "Lưu bài viết"}
                                     >
@@ -290,8 +290,8 @@ export default function NewsFeed({
                                 key={page}
                                 onClick={() => goToPage(page)}
                                 className={`w-12 h-12 rounded-2xl font-bold text-sm transition-all duration-300 ${currentPage === page
-                                        ? "bg-indigo-600 text-white shadow-xl shadow-indigo-500/40 transform scale-110"
-                                        : "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-indigo-500 hover:text-indigo-600 shadow-sm"
+                                    ? "bg-indigo-600 text-white shadow-xl shadow-indigo-500/40 transform scale-110"
+                                    : "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-indigo-500 hover:text-indigo-600 shadow-sm"
                                     }`}
                             >
                                 {page}
