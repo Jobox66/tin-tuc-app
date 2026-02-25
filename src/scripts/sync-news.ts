@@ -6,7 +6,8 @@ async function syncCategory(name: string, sources: NewsSource[], sheetName: stri
     try {
         // 1. Fetch existing news from Google Sheets
         console.log(`Fetching existing news from ${sheetName}...`);
-        const existingNews = await getNewsFromSheets(sheetName);
+        const response = await getNewsFromSheets(sheetName);
+        const existingNews = response.news;
         console.log(`Found ${existingNews.length} existing news items in ${sheetName}.`);
         const existingUrls = existingNews.map(n => n.url.trim());
 
@@ -49,7 +50,7 @@ async function syncCategory(name: string, sources: NewsSource[], sheetName: stri
 
         console.log(`Total news items for ${name} after merge: ${finalNews.length}`);
 
-        // 4. Save back to Google Sheets
+        // 4. Save back to Google Sheets & Final Heartbeat
         await saveNewsToSheets(finalNews, sheetName);
         console.log(`🎉 Sync Complete for ${name}!`);
     } catch (error) {

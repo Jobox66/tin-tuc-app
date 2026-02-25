@@ -17,8 +17,12 @@ async function test() {
     }
 
     try {
-        const news = await getNewsFromSheets();
+        const response = await getNewsFromSheets();
+        const news = response.news;
         console.log(`Success! Found ${news.length} news items.`);
+        if (response.heartbeat) {
+            console.log(`Heartbeat (Z1): ${response.heartbeat}`);
+        }
         if (news.length > 0) {
             console.log('Sample Data Structure:');
             console.log(JSON.stringify(news[0], null, 2));

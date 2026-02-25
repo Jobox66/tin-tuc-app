@@ -5,8 +5,12 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function Home() {
-  const generalNews: NewsItem[] = await getNewsFromSheets('Sheet1');
-  const financeNews: NewsItem[] = await getNewsFromSheets('Finance');
+  const generalRes = await getNewsFromSheets('Sheet1');
+  const financeRes = await getNewsFromSheets('Finance');
+
+  const generalNews = generalRes.news;
+  const financeNews = financeRes.news;
+  const heartbeat = generalRes.heartbeat || financeRes.heartbeat;
 
   // Sorting helper
   const sortByTimestamp = (items: NewsItem[]) =>
@@ -19,11 +23,15 @@ export default async function Home() {
   const sortedGeneral = sortByTimestamp(generalNews);
   const sortedFinance = sortByTimestamp(financeNews);
 
-  // Find latest sync time
+  // Find latest article timestamp
   const allNews = [...generalNews, ...financeNews];
-  const lastSyncTime = allNews.length > 0
+  const lastArticleTime = allNews.length > 0
     ? new Date(Math.max(...allNews.map(n => n.timestamp))).toLocaleString('vi-VN')
     : 'Chưa có dữ liệu';
+
+  const systemRunTime = heartbeat
+    ? new Date(heartbeat).toLocaleString('vi-VN')
+    : 'Chưa có log';
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 font-sans text-zinc-900 dark:text-zinc-100 selection:bg-indigo-100 dark:selection:bg-indigo-900">
@@ -45,8 +53,9 @@ export default async function Home() {
                 Multi-Tab Sync
               </div>
             </div>
-            <div className="text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">
-              Cập nhật mới nhất: {lastSyncTime}
+            <div className="text-[10px] text-zinc-400 dark:text-zinc-500 font-medium flex flex-col items-end gap-0.5">
+              <span>Tin mới nhất: {lastArticleTime}</span>
+              <span>Hệ thống quét lúc: {systemRunTime}</span>
             </div>
           </div>
         </div>

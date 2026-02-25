@@ -33,33 +33,34 @@ function getAuthClient() {
   });
 }
 
-export async function getNewsFromSheets(sheetName: string = 'Sheet1'): Promise<NewsItem[]> {
+export async function getNewsFromSheets(sheetName: string = 'Sheet1'): Promise<{ news: NewsItem[], heartbeat?: string }> {
   const spreadsheetId = process.env.GOOGLE_SHEET_ID;
-  if (!spreadsheetId) return [];
+  if (!spreadsheetId) return { news: [] };
 
   try {
     const auth = getAuthClient();
     const sheets = google.sheets({ version: 'v4', auth });
 
-    console.log(`Fetching data from Google Sheets: ${sheetName}!A2:H...`);
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: `${sheetName}!A2:H`,
-    });
-    console.log(`Google Sheets API response received for ${sheetName}.`);
+    console.log(`Fetching data from Google Sheets: ${sheetName}!A2:H (and Heartbeat Z1)...`);
 
-    const rows = response.data.values;
+    // Fetch both range and Heartbeat
+    const response = await sheets.spreadsheets.values.batchGet({
+      spreadsheetId,
+      ranges: [`${sheetName}!A2:H`, `${sheetName}!Z1`],
+    });
+
+    const rows = response.data.valueRanges?.[0].values;
+    const heartbeatRow = response.data.valueRanges?.[1].values;
+    const heartbeat = heartbeatRow?.[0]?.[0];
+
     if (!rows || rows.length === 0) {
       console.log(`[GoogleSheets] No data found in ${sheetName}.`);
-      return [];
+      return { news: [], heartbeat };
     }
 
     console.log(`[GoogleSheets] Successfully read ${rows.length} rows from ${sheetName}.`);
-    if (rows.length > 0) {
-      console.log(`[GoogleSheets] Latest item in ${sheetName}: ${rows[0][0]} (${rows[0][3]})`);
-    }
 
-    return rows.map((row) => ({
+    const news = rows.map((row) => ({
       title: row[0] || '',
       summary: row[1] || '',
       url: row[2] || '',
@@ -69,9 +70,11 @@ export async function getNewsFromSheets(sheetName: string = 'Sheet1'): Promise<N
       isHidden: row[6] === 'TRUE',
       isSaved: row[7] === 'TRUE',
     }));
+
+    return { news, heartbeat };
   } catch (error) {
     console.error(`Error fetching data from ${sheetName}:`, error);
-    return [];
+    return { news: [] };
   }
 }
 
@@ -111,8 +114,20 @@ export async function saveNewsToSheets(newsItems: NewsItem[], sheetName: string 
           values,
         },
       });
-      console.log(`Successfully saved ${values.length} news items to ${sheetName} (including Hidden/Saved status).`);
     }
+
+    // 4. Update Heartbeat (Cell Z1) to track when the JOBS actually run
+    // Moved outside the if(values.length > 0) to ALWAYS run
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheetName}!Z1`,
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [[new Date().toISOString()]],
+      },
+    });
+
+    console.log(`Successfully saved ${values.length} news items and Heartbeat to ${sheetName}.`);
   } catch (error) {
     console.error(`Error saving data to ${sheetName}:`, error);
     throw error;
