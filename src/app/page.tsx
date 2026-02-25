@@ -2,6 +2,7 @@ import { getNewsFromSheets, NewsItem } from "@/lib/google-sheets";
 import NewsFeed from "@/components/NewsFeed";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function Home() {
   const generalNews: NewsItem[] = await getNewsFromSheets('Sheet1');
@@ -18,6 +19,12 @@ export default async function Home() {
   const sortedGeneral = sortByTimestamp(generalNews);
   const sortedFinance = sortByTimestamp(financeNews);
 
+  // Find latest sync time
+  const allNews = [...generalNews, ...financeNews];
+  const lastSyncTime = allNews.length > 0
+    ? new Date(Math.max(...allNews.map(n => n.timestamp))).toLocaleString('vi-VN')
+    : 'Chưa có dữ liệu';
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 font-sans text-zinc-900 dark:text-zinc-100 selection:bg-indigo-100 dark:selection:bg-indigo-900">
       {/* Header */}
@@ -29,12 +36,17 @@ export default async function Home() {
             </div>
             <h1 className="text-xl font-bold tracking-tight">App Tin Tuc</h1>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="text-sm text-zinc-500 dark:text-zinc-400 font-medium">
-              {generalNews.length + financeNews.length} bài báo
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-4">
+              <div className="text-sm text-zinc-500 dark:text-zinc-400 font-medium">
+                {generalNews.length + financeNews.length} bài báo
+              </div>
+              <div className="px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-xs font-bold text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-800">
+                Multi-Tab Sync
+              </div>
             </div>
-            <div className="px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-xs font-bold text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-800">
-              Multi-Tab Sync
+            <div className="text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">
+              Cập nhật mới nhất: {lastSyncTime}
             </div>
           </div>
         </div>

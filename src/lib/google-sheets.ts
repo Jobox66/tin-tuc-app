@@ -50,8 +50,13 @@ export async function getNewsFromSheets(sheetName: string = 'Sheet1'): Promise<N
 
     const rows = response.data.values;
     if (!rows || rows.length === 0) {
-      console.log(`No data found in ${sheetName}.`);
+      console.log(`[GoogleSheets] No data found in ${sheetName}.`);
       return [];
+    }
+
+    console.log(`[GoogleSheets] Successfully read ${rows.length} rows from ${sheetName}.`);
+    if (rows.length > 0) {
+      console.log(`[GoogleSheets] Latest item in ${sheetName}: ${rows[0][0]} (${rows[0][3]})`);
     }
 
     return rows.map((row) => ({
