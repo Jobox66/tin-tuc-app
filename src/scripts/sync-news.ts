@@ -9,6 +9,9 @@ async function syncCategory(name: string, sources: NewsSource[], sheetName: stri
         const response = await getNewsFromSheets(sheetName);
         const existingNews = response.news;
         console.log(`Found ${existingNews.length} existing news items in ${sheetName}.`);
+        if (existingNews.length > 0) {
+            console.log(`Sample Existing URL: ${existingNews[0].url}`);
+        }
         const existingUrls = existingNews.map(n => n.url.trim());
 
         // 2. Aggregate new news (passing existingUrls to skip re-summarizing)
@@ -17,6 +20,8 @@ async function syncCategory(name: string, sources: NewsSource[], sheetName: stri
 
         if (newNews.length === 0) {
             console.log(`No new items for ${name} at this time. All items in feed are already in sheet.`);
+            // Still update heartbeat to show system check happened
+            await saveNewsToSheets(existingNews, sheetName);
             return;
         }
 
