@@ -56,6 +56,9 @@ export default async function Home() {
             <div className="text-[10px] text-zinc-400 dark:text-zinc-500 font-medium flex flex-col items-end gap-0.5">
               <span>Tin mới nhất: {lastArticleTime}</span>
               <span>Hệ thống quét lúc: {systemRunTime}</span>
+              <span className="text-indigo-400 font-bold mt-1">
+                Tổng: {generalNews.length} (Chung) | {financeNews.length} (Tài chính)
+              </span>
             </div>
           </div>
         </div>

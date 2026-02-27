@@ -1,8 +1,10 @@
 import { aggregateNews, GENERAL_SOURCES, FINANCE_SOURCES, NewsSource } from '../lib/aggregator';
 import { saveNewsToSheets, getNewsFromSheets, NewsItem } from '../lib/google-sheets';
 
+const SYNC_VERSION = "2026-02-27-v2";
+
 async function syncCategory(name: string, sources: NewsSource[], sheetName: string) {
-    console.log(`\n🚀 Starting News Sync for Category: ${name} (${sheetName})...`);
+    console.log(`\n🚀 [v${SYNC_VERSION}] Starting News Sync for Category: ${name} (${sheetName})...`);
     try {
         // 1. Fetch existing news from Google Sheets
         console.log(`Fetching existing news from ${sheetName}...`);

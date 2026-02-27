@@ -117,17 +117,21 @@ export async function saveNewsToSheets(newsItems: NewsItem[], sheetName: string 
     }
 
     // 4. Update Heartbeat (Cell Z1) to track when the JOBS actually run
-    // Moved outside the if(values.length > 0) to ALWAYS run
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${sheetName}!Z1`,
-      valueInputOption: 'RAW',
-      requestBody: {
-        values: [[new Date().toISOString()]],
-      },
-    });
+    try {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${sheetName}!Z1`,
+        valueInputOption: 'RAW',
+        requestBody: {
+          values: [[new Date().toISOString()]],
+        },
+      });
+      console.log(`[GoogleSheets] Heartbeat updated for ${sheetName} to cell Z1.`);
+    } catch (heartbeatError) {
+      console.error(`[GoogleSheets] WARNING: Heartbeat update failed for ${sheetName}:`, heartbeatError);
+    }
 
-    console.log(`Successfully saved ${values.length} news items and Heartbeat to ${sheetName}.`);
+    console.log(`Successfully saved ${values.length} news items to ${sheetName}.`);
   } catch (error) {
     console.error(`Error saving data to ${sheetName}:`, error);
     throw error;

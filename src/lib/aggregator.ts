@@ -53,8 +53,15 @@ export async function aggregateNews(sources: NewsSource[], existingUrls: string[
             for (const item of feedItems) {
                 const url = (item.link || '').trim();
 
+                // Debug log for every item in feed
+                console.log(`  🔍 Checking feed item: ${item.title} (${url.substring(0, 30)}...)`);
+
                 // Skip if already in existingUrls OR already added in this run
-                if (existingUrls.includes(url) || allNews.some(n => n.url === url)) {
+                const isExisting = existingUrls.includes(url);
+                const isDuplicate = allNews.some(n => n.url === url);
+
+                if (isExisting || isDuplicate) {
+                    console.log(`  ⏩ Skipping: ${isExisting ? 'Already in sheet' : 'Duplicate in run'}`);
                     skippedCount++;
                     continue;
                 }
