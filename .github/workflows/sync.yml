@@ -34,10 +34,28 @@ jobs:
       - name: Install Node.js dependencies
         run: npm ci
 
+      - name: Verify environment
+        env:
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+          GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
+        run: |
+          echo "🔍 Checking environment variables..."
+          if [ -z "$GOOGLE_SHEET_ID" ]; then echo "❌ GOOGLE_SHEET_ID is EMPTY"; exit 1; fi
+          echo "✅ GOOGLE_SHEET_ID is set (length: ${#GOOGLE_SHEET_ID})"
+          if [ -z "$GOOGLE_SERVICE_ACCOUNT_EMAIL" ]; then echo "❌ GOOGLE_SERVICE_ACCOUNT_EMAIL is EMPTY"; exit 1; fi
+          echo "✅ GOOGLE_SERVICE_ACCOUNT_EMAIL is set (length: ${#GOOGLE_SERVICE_ACCOUNT_EMAIL})"
+          if [ -z "$GOOGLE_PRIVATE_KEY" ]; then echo "❌ GOOGLE_PRIVATE_KEY is EMPTY"; exit 1; fi
+          echo "✅ GOOGLE_PRIVATE_KEY is set (length: ${#GOOGLE_PRIVATE_KEY})"
+          echo "🔍 Python path: $(which python3)"
+
       - name: Run News Sync
         env:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
           GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
-          PYTHON_PATH: python3 # Force use system python in CI
-        run: npm run sync
+          PYTHON_PATH: python3
+        run: |
+          echo "🚀 Starting sync at $(date)"
+          npm run sync
+          echo "✅ Sync finished at $(date)"

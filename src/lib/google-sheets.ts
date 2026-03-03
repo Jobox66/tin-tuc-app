@@ -13,7 +13,7 @@ export interface NewsItem {
 
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly', 'https://www.googleapis.com/auth/spreadsheets'];
 
-function getAuthClient() {
+export function getAuthClient() {
   const privateKey = process.env.GOOGLE_PRIVATE_KEY;
   const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
 
@@ -21,10 +21,19 @@ function getAuthClient() {
     throw new Error('Google Sheets configuration missing: GOOGLE_PRIVATE_KEY or GOOGLE_SERVICE_ACCOUNT_EMAIL');
   }
 
-  // Robust formatting for private key
-  const formattedKey = privateKey
-    .replace(/^"|"$/g, '') // Remove surrounding quotes
-    .replace(/\\n/g, '\n'); // Replace literal \n with real newline
+  // Robust formatting for private key - handles ALL environments:
+  // 1. .env file: key may be wrapped in quotes with literal \n
+  // 2. GitHub Secrets: key may have real newlines, or escaped \n
+  let formattedKey = privateKey
+    .replace(/^"|"$/g, '')     // Remove surrounding quotes if present
+    .replace(/\\n/g, '\n')     // Replace literal \n with real newline
+    .replace(/\\\\n/g, '\n');  // Replace double-escaped \\n with real newline
+
+  // Final validation
+  if (!formattedKey.includes('-----BEGIN')) {
+    console.error('[Auth] WARNING: Private key does not contain expected header after formatting.');
+    console.error('[Auth] Key starts with:', formattedKey.substring(0, 30));
+  }
 
   return new google.auth.JWT({
     email: clientEmail,
