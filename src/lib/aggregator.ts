@@ -98,7 +98,7 @@ export async function aggregateNews(sources: NewsSource[], existingUrls: string[
                     title: item.title || '',
                     summary: summary,
                     url: url,
-                    date: pubDate.toLocaleString('vi-VN'),
+                    date: pubDate.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
                     thumbnail: thumbnail,
                     timestamp: timestamp
                 });

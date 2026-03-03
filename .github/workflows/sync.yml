@@ -1,4 +1,4 @@
-name: Nightly News Sync
+name: Tintuc Sync
 
 on:
   schedule:

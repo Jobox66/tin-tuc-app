@@ -26,12 +26,10 @@ export default async function Home() {
   // Find latest article timestamp
   const allNews = [...generalNews, ...financeNews];
   const lastArticleTime = allNews.length > 0
-    ? new Date(Math.max(...allNews.map(n => n.timestamp))).toLocaleString('vi-VN')
+    ? new Date(Math.max(...allNews.map(n => n.timestamp))).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })
     : 'Chưa có dữ liệu';
 
-  const systemRunTime = heartbeat
-    ? new Date(heartbeat).toLocaleString('vi-VN')
-    : 'Chưa có log';
+  const systemRunTime = heartbeat || 'Chưa có log';
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 font-sans text-zinc-900 dark:text-zinc-100 selection:bg-indigo-100 dark:selection:bg-indigo-900">

@@ -132,7 +132,7 @@ export async function saveNewsToSheets(newsItems: NewsItem[], sheetName: string 
         range: `${sheetName}!Z1`,
         valueInputOption: 'RAW',
         requestBody: {
-          values: [[new Date().toISOString()]],
+          values: [[new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })]],
         },
       });
       console.log(`[GoogleSheets] Heartbeat updated for ${sheetName} to cell Z1.`);
