@@ -36,6 +36,28 @@ export const FINANCE_SOURCES: NewsSource[] = [
     }
 ];
 
+export const INTERNATIONAL_SOURCES: NewsSource[] = [
+    { name: 'BBC World', url: 'http://feeds.bbci.co.uk/news/world/rss.xml' },
+    { name: 'Reuters - World', url: 'https://www.rss.reuters.com/news/worldNews' },
+    { name: 'CNN - Top Stories', url: 'http://rss.cnn.com/rss/edition.rss' },
+    { name: 'Al Jazeera', url: 'https://www.aljazeera.com/xml/rss/all.xml' },
+    { name: 'The Guardian - World', url: 'https://www.theguardian.com/world/rss' },
+    { name: 'AP News - Top Stories', url: 'https://rsshub.app/apnews/topics/apf-topnews' },
+];
+
+export const INTL_FINANCE_SOURCES: NewsSource[] = [
+    { name: 'CNBC - Top News', url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html' },
+    { name: 'Bloomberg', url: 'https://rsshub.app/bloomberg' },
+    { name: 'MarketWatch - Top Stories', url: 'http://feeds.marketwatch.com/marketwatch/topstories/' },
+    { name: 'Financial Times - Home', url: 'https://www.ft.com/rss/home' },
+];
+
+export const INTL_TECH_SOURCES: NewsSource[] = [
+    { name: 'TechCrunch', url: 'https://techcrunch.com/feed/' },
+    { name: 'The Verge', url: 'https://www.theverge.com/rss/index.xml' },
+    { name: 'Ars Technica', url: 'https://feeds.arstechnica.com/arstechnica/index' },
+];
+
 export async function aggregateNews(sources: NewsSource[], existingUrls: string[] = []): Promise<NewsItem[]> {
     const allNews: NewsItem[] = [];
 

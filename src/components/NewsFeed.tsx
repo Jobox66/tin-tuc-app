@@ -4,26 +4,50 @@ import { NewsItem } from "@/lib/google-sheets";
 import { useState, useTransition, useMemo } from "react";
 import { updateArticleStatus } from "@/app/actions";
 
+type CategoryKey = "general" | "finance" | "international" | "intlFinance" | "intlTech";
+
+const CATEGORY_LABELS: Record<CategoryKey, string> = {
+    general: "Tin Chung",
+    finance: "Tài Chính",
+    international: "Quốc Tế",
+    intlFinance: "Tài Chính QT",
+    intlTech: "Công Nghệ",
+};
+
+const CATEGORY_SHEETS: Record<CategoryKey, string> = {
+    general: "Sheet1",
+    finance: "Finance",
+    international: "International",
+    intlFinance: "IntlFinance",
+    intlTech: "IntlTech",
+};
+
 interface NewsFeedProps {
     initialGeneral: NewsItem[];
     initialFinance: NewsItem[];
+    initialInternational: NewsItem[];
+    initialIntlFinance: NewsItem[];
+    initialIntlTech: NewsItem[];
 }
 
 export default function NewsFeed({
     initialGeneral,
     initialFinance,
+    initialInternational,
+    initialIntlFinance,
+    initialIntlTech,
 }: NewsFeedProps) {
-    const [activeCategory, setActiveCategory] = useState<"general" | "finance">(
+    const [activeCategory, setActiveCategory] = useState<CategoryKey>(
         "general"
     );
 
     // Local state for articles to allow Optimistic UI updates
-    const [articles, setArticles] = useState<{
-        general: NewsItem[];
-        finance: NewsItem[];
-    }>({
+    const [articles, setArticles] = useState<Record<CategoryKey, NewsItem[]>>({
         general: initialGeneral,
         finance: initialFinance,
+        international: initialInternational,
+        intlFinance: initialIntlFinance,
+        intlTech: initialIntlTech,
     });
 
     const [isPending, startTransition] = useTransition();
@@ -33,7 +57,7 @@ export default function NewsFeed({
 
     // Compute filtered news based on active category and showSavedOnly
     const news = useMemo(() => {
-        const list = activeCategory === "general" ? articles.general : articles.finance;
+        const list = articles[activeCategory];
         if (showSavedOnly) {
             return list.filter(n => n.isSaved);
         }
@@ -57,7 +81,7 @@ export default function NewsFeed({
         if (currentPage > 1) goToPage(currentPage - 1);
     };
 
-    const handleCategoryChange = (category: "general" | "finance") => {
+    const handleCategoryChange = (category: CategoryKey) => {
         setActiveCategory(category);
         setShowSavedOnly(false);
         setCurrentPage(1);
@@ -66,11 +90,11 @@ export default function NewsFeed({
 
     const handleToggleStatus = async (item: NewsItem, field: 'isHidden' | 'isSaved') => {
         const newValue = !item[field];
-        const sheetName = activeCategory === "general" ? "Sheet1" : "Finance";
+        const sheetName = CATEGORY_SHEETS[activeCategory];
 
         // 1. Optimistic Update
         setArticles(prev => {
-            const category = activeCategory;
+            const category: CategoryKey = activeCategory;
             const newList = prev[category].map(n =>
                 n.url === item.url ? { ...n, [field]: newValue } : n
             );
@@ -83,7 +107,7 @@ export default function NewsFeed({
             if (!result.success) {
                 // Revert on error
                 setArticles(prev => {
-                    const category = activeCategory;
+                    const category: CategoryKey = activeCategory;
                     const newList = prev[category].map(n =>
                         n.url === item.url ? { ...n, [field]: !newValue } : n
                     );
@@ -99,25 +123,19 @@ export default function NewsFeed({
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-10">
                 {/* Category Tabs & Saved Toggle */}
                 <div className="flex flex-wrap items-center gap-4">
-                    <div className="flex items-center p-1 bg-zinc-200/50 dark:bg-zinc-800/50 rounded-2xl w-fit backdrop-blur-sm border border-zinc-200 dark:border-zinc-700">
-                        <button
-                            onClick={() => handleCategoryChange("general")}
-                            className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 ${activeCategory === "general" && !showSavedOnly
-                                ? "bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-400 shadow-md transform scale-100"
-                                : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 scale-95"
-                                }`}
-                        >
-                            Tin Chung
-                        </button>
-                        <button
-                            onClick={() => handleCategoryChange("finance")}
-                            className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 ${activeCategory === "finance" && !showSavedOnly
-                                ? "bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-400 shadow-md transform scale-100"
-                                : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 scale-95"
-                                }`}
-                        >
-                            Tài Chính
-                        </button>
+                    <div className="flex items-center p-1 bg-zinc-200/50 dark:bg-zinc-800/50 rounded-2xl w-fit backdrop-blur-sm border border-zinc-200 dark:border-zinc-700 flex-wrap">
+                        {(Object.keys(CATEGORY_LABELS) as CategoryKey[]).map((key) => (
+                            <button
+                                key={key}
+                                onClick={() => handleCategoryChange(key)}
+                                className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 ${activeCategory === key && !showSavedOnly
+                                    ? "bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-400 shadow-md transform scale-100"
+                                    : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 scale-95"
+                                    }`}
+                            >
+                                {CATEGORY_LABELS[key]}
+                            </button>
+                        ))}
                     </div>
 
                     <button
@@ -230,7 +248,7 @@ export default function NewsFeed({
 
                                 <div className="absolute top-4 left-4">
                                     <span className="px-3 py-1 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md rounded-full text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-800 shadow-sm">
-                                        {activeCategory === "finance" ? "Tài Chính" : "Tin Chung"}
+                                        {CATEGORY_LABELS[activeCategory]}
                                     </span>
                                 </div>
                             </div>

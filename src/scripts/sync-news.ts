@@ -1,4 +1,4 @@
-import { aggregateNews, GENERAL_SOURCES, FINANCE_SOURCES, NewsSource } from '../lib/aggregator';
+import { aggregateNews, GENERAL_SOURCES, FINANCE_SOURCES, INTERNATIONAL_SOURCES, INTL_FINANCE_SOURCES, INTL_TECH_SOURCES, NewsSource } from '../lib/aggregator';
 import { saveNewsToSheets, getNewsFromSheets, NewsItem } from '../lib/google-sheets';
 
 const SYNC_VERSION = "2026-03-03-v3";
@@ -108,6 +108,15 @@ async function sync() {
 
         // Step 2: Sync Finance
         await syncCategory('Finance', FINANCE_SOURCES, 'Finance');
+
+        // Step 3: Sync International
+        await syncCategory('International', INTERNATIONAL_SOURCES, 'International');
+
+        // Step 4: Sync International Finance
+        await syncCategory('IntlFinance', INTL_FINANCE_SOURCES, 'IntlFinance');
+
+        // Step 5: Sync International Tech
+        await syncCategory('IntlTech', INTL_TECH_SOURCES, 'IntlTech');
 
         console.log(`\n${'='.repeat(60)}`);
         console.log(`✅ ALL SYNC COMPLETE at ${new Date().toISOString()}`);
