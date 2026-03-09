@@ -6,6 +6,11 @@ on:
     - cron: '*/30 * * * *'
   workflow_dispatch: # Allow manual trigger
 
+# Prevent overlapping sync runs - cancel old job when new one starts
+concurrency:
+  group: news-sync
+  cancel-in-progress: true
+
 jobs:
   sync:
     runs-on: ubuntu-latest
