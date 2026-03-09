@@ -146,3 +146,25 @@ export async function saveNewsToSheets(newsItems: NewsItem[], sheetName: string 
     throw error;
   }
 }
+
+export async function updateHeartbeatOnly(sheetName: string): Promise<void> {
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+  if (!spreadsheetId) return;
+
+  try {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheetName}!Z1`,
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [[new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })]],
+      },
+    });
+    console.log(`[GoogleSheets] Heartbeat-only updated for ${sheetName}.`);
+  } catch (error) {
+    console.error(`[GoogleSheets] Heartbeat-only update failed for ${sheetName}:`, error);
+  }
+}

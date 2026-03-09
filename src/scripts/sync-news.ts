@@ -1,7 +1,7 @@
 import { aggregateNews, GENERAL_SOURCES, FINANCE_SOURCES, INTERNATIONAL_SOURCES, INTL_FINANCE_SOURCES, INTL_TECH_SOURCES, NewsSource } from '../lib/aggregator';
-import { saveNewsToSheets, getNewsFromSheets, NewsItem } from '../lib/google-sheets';
+import { saveNewsToSheets, getNewsFromSheets, updateHeartbeatOnly, NewsItem } from '../lib/google-sheets';
 
-const SYNC_VERSION = "2026-03-03-v3";
+const SYNC_VERSION = "2026-03-09-v4";
 
 // ============= STEP 0: Validate Environment =============
 function validateEnv() {
@@ -54,8 +54,8 @@ async function syncCategory(name: string, sources: NewsSource[], sheetName: stri
 
     if (newNews.length === 0) {
         console.log(`   No new items for ${name}. Updating heartbeat only...`);
-        await saveNewsToSheets(existingNews, sheetName);
-        console.log(`   ✅ Heartbeat updated for ${name}.`);
+        await updateHeartbeatOnly(sheetName);
+        console.log(`   ✅ Heartbeat updated for ${name}. No data rewrite needed.`);
         return;
     }
 
@@ -95,6 +95,8 @@ async function syncCategory(name: string, sources: NewsSource[], sheetName: stri
 
 // ============= ENTRY POINT =============
 async function sync() {
+    const failedCategories: string[] = [];
+
     try {
         console.log(`\n${'='.repeat(60)}`);
         console.log(`📰 NEWS SYNC STARTED at ${new Date().toISOString()}`);
@@ -103,24 +105,34 @@ async function sync() {
         // Step 0: Validate
         validateEnv();
 
-        // Step 1: Sync General
-        await syncCategory('General', GENERAL_SOURCES, 'Sheet1');
+        // Define all categories
+        const categories: { name: string; sources: NewsSource[]; sheet: string }[] = [
+            { name: 'General', sources: GENERAL_SOURCES, sheet: 'Sheet1' },
+            { name: 'Finance', sources: FINANCE_SOURCES, sheet: 'Finance' },
+            { name: 'International', sources: INTERNATIONAL_SOURCES, sheet: 'International' },
+            { name: 'IntlFinance', sources: INTL_FINANCE_SOURCES, sheet: 'IntlFinance' },
+            { name: 'IntlTech', sources: INTL_TECH_SOURCES, sheet: 'IntlTech' },
+        ];
 
-        // Step 2: Sync Finance
-        await syncCategory('Finance', FINANCE_SOURCES, 'Finance');
-
-        // Step 3: Sync International
-        await syncCategory('International', INTERNATIONAL_SOURCES, 'International');
-
-        // Step 4: Sync International Finance
-        await syncCategory('IntlFinance', INTL_FINANCE_SOURCES, 'IntlFinance');
-
-        // Step 5: Sync International Tech
-        await syncCategory('IntlTech', INTL_TECH_SOURCES, 'IntlTech');
+        // Sync each category independently
+        for (const cat of categories) {
+            try {
+                await syncCategory(cat.name, cat.sources, cat.sheet);
+            } catch (catError) {
+                console.error(`\n❌ Category ${cat.name} FAILED:`, catError);
+                failedCategories.push(cat.name);
+            }
+        }
 
         console.log(`\n${'='.repeat(60)}`);
-        console.log(`✅ ALL SYNC COMPLETE at ${new Date().toISOString()}`);
-        console.log(`${'='.repeat(60)}\n`);
+        if (failedCategories.length > 0) {
+            console.warn(`⚠️ SYNC PARTIAL - Failed categories: ${failedCategories.join(', ')}`);
+            console.log(`${'='.repeat(60)}\n`);
+            // Don't exit(1) for partial failures - other categories succeeded
+        } else {
+            console.log(`✅ ALL SYNC COMPLETE at ${new Date().toISOString()}`);
+            console.log(`${'='.repeat(60)}\n`);
+        }
 
     } catch (error) {
         console.error(`\n${'='.repeat(60)}`);
