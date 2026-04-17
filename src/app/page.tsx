@@ -1,4 +1,4 @@
-import { getNewsFromSheets, NewsItem } from "@/lib/google-sheets";
+import { getNewsFromSheets, getLatestGoldPricesFromSheets, NewsItem } from "@/lib/google-sheets";
 import NewsFeed from "@/components/NewsFeed";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +10,7 @@ export default async function Home() {
   const internationalRes = await getNewsFromSheets('International');
   const intlFinanceRes = await getNewsFromSheets('IntlFinance');
   const intlTechRes = await getNewsFromSheets('IntlTech');
+  const goldRes = await getLatestGoldPricesFromSheets('GoldPrice');
 
   const generalNews = generalRes.news;
   const financeNews = financeRes.news;
@@ -88,6 +89,7 @@ export default async function Home() {
           initialInternational={sortedInternational}
           initialIntlFinance={sortedIntlFinance}
           initialIntlTech={sortedIntlTech}
+          initialGoldPrices={goldRes.prices}
         />
       </main>
 

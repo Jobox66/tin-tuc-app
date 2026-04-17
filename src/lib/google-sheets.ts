@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import { GoldPriceItem, GoldPriceSnapshot } from './gold-price';
 
 export interface NewsItem {
   title: string;
@@ -166,5 +167,122 @@ export async function updateHeartbeatOnly(sheetName: string): Promise<void> {
     console.log(`[GoogleSheets] Heartbeat-only updated for ${sheetName}.`);
   } catch (error) {
     console.error(`[GoogleSheets] Heartbeat-only update failed for ${sheetName}:`, error);
+  }
+}
+
+// ============= GOLD PRICE FUNCTIONS =============
+
+export interface GoldPriceRow {
+  date: string;
+  brand: string;
+  name: string;
+  buyPrice: string;
+  sellPrice: string;
+  worldPrice: string;
+  timestamp: string;
+}
+
+/**
+ * Save gold price snapshot to Google Sheets (append mode - keeps history)
+ */
+export async function saveGoldPricesToSheets(snapshot: GoldPriceSnapshot, sheetName: string = 'GoldPrice'): Promise<void> {
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+  if (!spreadsheetId) return;
+
+  try {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    // Prepare values - each gold item becomes a row
+    const fetchTime = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+    const values = snapshot.items.map(item => [
+      fetchTime,
+      item.brand,
+      item.name,
+      item.buyPrice.toString(),
+      item.sellPrice.toString(),
+      item.worldPrice,
+      item.timestamp.toString(),
+    ]);
+
+    if (values.length > 0) {
+      // Append to sheet (keeps history)
+      await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: `${sheetName}!A:G`,
+        valueInputOption: 'RAW',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: {
+          values,
+        },
+      });
+    }
+
+    // Update Heartbeat
+    try {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${sheetName}!Z1`,
+        valueInputOption: 'RAW',
+        requestBody: {
+          values: [[fetchTime]],
+        },
+      });
+    } catch (heartbeatError) {
+      console.error(`[GoogleSheets] WARNING: Gold heartbeat update failed:`, heartbeatError);
+    }
+
+    console.log(`[GoogleSheets] Successfully appended ${values.length} gold price rows to ${sheetName}.`);
+  } catch (error) {
+    console.error(`Error saving gold prices to ${sheetName}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Get the LATEST gold prices from sheet (most recent snapshot)
+ */
+export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPrice'): Promise<{ prices: GoldPriceRow[], heartbeat?: string }> {
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+  if (!spreadsheetId) return { prices: [] };
+
+  try {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    const response = await sheets.spreadsheets.values.batchGet({
+      spreadsheetId,
+      ranges: [`${sheetName}!A2:G`, `${sheetName}!Z1`],
+    });
+
+    const rows = response.data.valueRanges?.[0].values;
+    const heartbeatRow = response.data.valueRanges?.[1].values;
+    const heartbeat = heartbeatRow?.[0]?.[0];
+
+    if (!rows || rows.length === 0) {
+      console.log(`[GoogleSheets] No gold price data found in ${sheetName}.`);
+      return { prices: [], heartbeat };
+    }
+
+    // Get the latest timestamp group (last N rows with same date)
+    const allPrices: GoldPriceRow[] = rows.map((row) => ({
+      date: row[0] || '',
+      brand: row[1] || '',
+      name: row[2] || '',
+      buyPrice: row[3] || '0',
+      sellPrice: row[4] || '0',
+      worldPrice: row[5] || '0',
+      timestamp: row[6] || '0',
+    }));
+
+    // Find the latest date/time and filter for only that snapshot
+    const latestDate = allPrices[allPrices.length - 1].date;
+    const latestPrices = allPrices.filter(p => p.date === latestDate);
+
+    console.log(`[GoogleSheets] Found ${latestPrices.length} latest gold prices (${latestDate}).`);
+    return { prices: latestPrices, heartbeat };
+  } catch (error) {
+    console.error(`Error fetching gold prices from ${sheetName}:`, error);
+    return { prices: [] };
   }
 }

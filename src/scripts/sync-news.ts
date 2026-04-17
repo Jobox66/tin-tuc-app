@@ -1,5 +1,6 @@
 import { aggregateNews, GENERAL_SOURCES, FINANCE_SOURCES, INTERNATIONAL_SOURCES, INTL_FINANCE_SOURCES, INTL_TECH_SOURCES, NewsSource } from '../lib/aggregator';
-import { saveNewsToSheets, getNewsFromSheets, updateHeartbeatOnly, NewsItem } from '../lib/google-sheets';
+import { saveNewsToSheets, getNewsFromSheets, updateHeartbeatOnly, NewsItem, saveGoldPricesToSheets } from '../lib/google-sheets';
+import { fetchGoldPrices } from '../lib/gold-price';
 
 const SYNC_VERSION = "2026-03-09-v4";
 
@@ -93,6 +94,23 @@ async function syncCategory(name: string, sources: NewsSource[], sheetName: stri
     console.log(`🎉 Sync Complete for ${name}!`);
 }
 
+// ============= MAIN GOLD SYNC LOGIC =============
+async function syncGold() {
+    console.log(`\n🚀 [v${SYNC_VERSION}] Starting Gold Price Sync...`);
+    try {
+        const snapshot = await fetchGoldPrices();
+        if (snapshot.items.length > 0) {
+            await saveGoldPricesToSheets(snapshot, 'GoldPrice');
+            console.log(`🎉 Gold Sync Complete!`);
+        } else {
+            console.log(`⚠️ No gold prices fetched. Skipping sheet update.`);
+        }
+    } catch (e) {
+        console.error(`❌ Gold Sync FAILED:`, e);
+        throw e;
+    }
+}
+
 // ============= ENTRY POINT =============
 async function sync() {
     const failedCategories: string[] = [];
@@ -104,6 +122,14 @@ async function sync() {
 
         // Step 0: Validate
         validateEnv();
+
+        // Run Gold Sync
+        try {
+            await syncGold();
+        } catch (goldError) {
+             console.error(`\n❌ Gold Sync FAILED:`, goldError);
+             failedCategories.push('GoldPrice');
+        }
 
         // Define all categories
         const categories: { name: string; sources: NewsSource[]; sheet: string }[] = [
