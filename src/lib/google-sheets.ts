@@ -242,9 +242,9 @@ export async function saveGoldPricesToSheets(snapshot: GoldPriceSnapshot, sheetN
 /**
  * Get the LATEST gold prices from sheet (most recent snapshot)
  */
-export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPrice'): Promise<{ prices: GoldPriceRow[], heartbeat?: string }> {
+export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPrice'): Promise<{ prices: GoldPriceRow[], history: GoldPriceRow[], heartbeat?: string }> {
   const spreadsheetId = process.env.GOOGLE_SHEET_ID;
-  if (!spreadsheetId) return { prices: [] };
+  if (!spreadsheetId) return { prices: [], history: [] };
 
   try {
     const auth = getAuthClient();
@@ -261,7 +261,7 @@ export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPri
 
     if (!rows || rows.length === 0) {
       console.log(`[GoogleSheets] No gold price data found in ${sheetName}.`);
-      return { prices: [], heartbeat };
+      return { prices: [], history: [], heartbeat };
     }
 
     // Get the latest timestamp group (last N rows with same date)
@@ -276,13 +276,14 @@ export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPri
     }));
 
     // Find the latest date/time and filter for only that snapshot
+    // Sort array by timestamp or assume it is stored chronologically
     const latestDate = allPrices[allPrices.length - 1].date;
     const latestPrices = allPrices.filter(p => p.date === latestDate);
 
-    console.log(`[GoogleSheets] Found ${latestPrices.length} latest gold prices (${latestDate}).`);
-    return { prices: latestPrices, heartbeat };
+    console.log(`[GoogleSheets] Found ${latestPrices.length} latest gold prices (${latestDate}), and ${allPrices.length} total history records.`);
+    return { prices: latestPrices, history: allPrices, heartbeat };
   } catch (error) {
     console.error(`Error fetching gold prices from ${sheetName}:`, error);
-    return { prices: [] };
+    return { prices: [], history: [] };
   }
 }

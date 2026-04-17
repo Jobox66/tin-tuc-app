@@ -60,6 +60,7 @@ interface NewsFeedProps {
     initialIntlFinance: NewsItem[];
     initialIntlTech: NewsItem[];
     initialGoldPrices: GoldPriceRow[];
+    initialGoldHistory?: GoldPriceRow[];
 }
 
 export default function NewsFeed({
@@ -69,6 +70,7 @@ export default function NewsFeed({
     initialIntlFinance,
     initialIntlTech,
     initialGoldPrices,
+    initialGoldHistory = [],
 }: NewsFeedProps) {
     const [activeTab, setActiveTab] = useState<TabKey>(
         "general"
@@ -220,7 +222,7 @@ export default function NewsFeed({
             </div>
 
             {activeTab === "gold" ? (
-                <GoldPriceBoard prices={initialGoldPrices} />
+                <GoldPriceBoard prices={initialGoldPrices} history={initialGoldHistory} />
             ) : news.length === 0 ? (
                 <div className="rounded-2xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 p-20 text-center bg-white/50 dark:bg-zinc-900/50">
                     <div className="w-16 h-16 bg-zinc-100 dark:bg-zinc-800 rounded-full flex items-center justify-center mx-auto mb-4 text-zinc-400">
