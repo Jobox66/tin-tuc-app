@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { GoldPriceSnapshot } from './gold-price';
+import { GoldPriceSnapshot, GoldType, classifyGoldType } from './gold-price';
 
 export interface NewsItem {
   title: string;
@@ -183,6 +183,39 @@ export interface GoldPriceRow {
   timestamp: string;
 }
 
+/** Một điểm trên biểu đồ: giá chốt của một sản phẩm trong một ngày */
+export interface GoldHistoryPoint {
+  day: string;   // "17/4/2026"
+  buy: number;
+  sell: number;
+}
+
+/** Chuỗi lịch sử của một sản phẩm, đã gộp theo ngày */
+export interface GoldSeries {
+  name: string;
+  brand: string;
+  type: GoldType;
+  points: GoldHistoryPoint[];
+}
+
+// Sheet được append mỗi ~30 phút x 30 mặt hàng. Chặn số dòng đọc về để trang
+// không chậm dần theo thời gian (rollup sang sheet riêng là hướng lâu dài).
+const MAX_HISTORY_ROWS = 40000;
+// Số ngày tối đa đưa lên biểu đồ
+const MAX_HISTORY_DAYS = 90;
+
+/**
+ * Cột date được ghi bằng toLocaleString('vi-VN') -> "HH:MM:SS D/M/YYYY"
+ * (GIỜ đứng trước NGÀY). Lấy token chứa '/' mới ra phần ngày.
+ */
+export function extractDay(date: string): string {
+  return date.split(' ').find(part => part.includes('/')) || date;
+}
+
+function toNumber(value: string): number {
+  return parseInt(String(value).replace(/\D/g, ''), 10) || 0;
+}
+
 /**
  * Save gold price snapshot to Google Sheets (append mode - keeps history)
  */
@@ -241,19 +274,62 @@ export async function saveGoldPricesToSheets(snapshot: GoldPriceSnapshot, sheetN
 }
 
 /**
- * Get the LATEST gold prices from sheet (most recent snapshot)
+ * Gộp các dòng lịch sử thành chuỗi theo sản phẩm + theo ngày.
+ * Trong mỗi ngày lấy bản ghi CUỐI (mới nhất) vì sheet được append theo thời gian.
  */
-export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPrice'): Promise<{ prices: GoldPriceRow[], history: GoldPriceRow[], heartbeat?: string }> {
+function buildSeries(rows: GoldPriceRow[]): GoldSeries[] {
+  const byProduct = new Map<string, { brand: string; name: string; days: Map<string, GoldHistoryPoint> }>();
+
+  for (const row of rows) {
+    if (!row.name) continue;
+    const key = `${row.brand}|${row.name}`;
+    let entry = byProduct.get(key);
+    if (!entry) {
+      entry = { brand: row.brand, name: row.name, days: new Map() };
+      byProduct.set(key, entry);
+    }
+    // Ghi đè => giữ bản ghi cuối cùng của ngày
+    entry.days.set(extractDay(row.date), {
+      day: extractDay(row.date),
+      buy: toNumber(row.buyPrice),
+      sell: toNumber(row.sellPrice),
+    });
+  }
+
+  return Array.from(byProduct.values())
+    .map(entry => ({
+      name: entry.name,
+      brand: entry.brand,
+      type: classifyGoldType(entry.name),
+      points: Array.from(entry.days.values()).slice(-MAX_HISTORY_DAYS),
+    }))
+    .filter(s => s.points.length > 0);
+}
+
+/**
+ * Get the LATEST gold prices from sheet (most recent snapshot) + chuỗi lịch sử đã gộp theo ngày.
+ * Chỉ trả về dữ liệu đã tổng hợp, không đẩy toàn bộ raw history xuống client.
+ */
+export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPrice'): Promise<{ prices: GoldPriceRow[], series: GoldSeries[], heartbeat?: string }> {
   const spreadsheetId = process.env.GOOGLE_SHEET_ID;
-  if (!spreadsheetId) return { prices: [], history: [] };
+  if (!spreadsheetId) return { prices: [], series: [] };
 
   try {
     const auth = getAuthClient();
     const sheets = google.sheets({ version: 'v4', auth });
 
+    // Đếm số dòng đã điền (đọc 1 cột rẻ hơn nhiều so với đọc cả bảng)
+    const countRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${sheetName}!A:A`,
+      majorDimension: 'COLUMNS',
+    });
+    const filledRows = countRes.data.values?.[0]?.length || 0;
+    const startRow = Math.max(2, filledRows - MAX_HISTORY_ROWS + 1);
+
     const response = await sheets.spreadsheets.values.batchGet({
       spreadsheetId,
-      ranges: [`${sheetName}!A2:G`, `${sheetName}!Z1`],
+      ranges: [`${sheetName}!A${startRow}:G`, `${sheetName}!Z1`],
     });
 
     const rows = response.data.valueRanges?.[0].values;
@@ -262,10 +338,9 @@ export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPri
 
     if (!rows || rows.length === 0) {
       console.log(`[GoogleSheets] No gold price data found in ${sheetName}.`);
-      return { prices: [], history: [], heartbeat };
+      return { prices: [], series: [], heartbeat };
     }
 
-    // Get the latest timestamp group (last N rows with same date)
     const allPrices: GoldPriceRow[] = rows.map((row) => ({
       date: row[0] || '',
       brand: row[1] || '',
@@ -276,15 +351,15 @@ export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPri
       timestamp: row[6] || '0',
     }));
 
-    // Find the latest date/time and filter for only that snapshot
-    // Sort array by timestamp or assume it is stored chronologically
+    // Snapshot mới nhất = các dòng có cùng mốc thời gian với dòng cuối
     const latestDate = allPrices[allPrices.length - 1].date;
     const latestPrices = allPrices.filter(p => p.date === latestDate);
+    const series = buildSeries(allPrices);
 
-    console.log(`[GoogleSheets] Found ${latestPrices.length} latest gold prices (${latestDate}), and ${allPrices.length} total history records.`);
-    return { prices: latestPrices, history: allPrices, heartbeat };
+    console.log(`[GoogleSheets] Gold: ${latestPrices.length} dòng mới nhất (${latestDate}), ${allPrices.length} dòng lịch sử (từ row ${startRow}/${filledRows}), ${series.length} chuỗi sản phẩm.`);
+    return { prices: latestPrices, series, heartbeat };
   } catch (error) {
     console.error(`Error fetching gold prices from ${sheetName}:`, error);
-    return { prices: [], history: [] };
+    return { prices: [], series: [] };
   }
 }

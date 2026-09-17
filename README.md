@@ -61,6 +61,30 @@ tin-tuc-app/
 
 ---
 
+## 🥇 Giá vàng (2 nguồn API)
+
+| Nguồn | Mặt hàng | Ghi chú |
+|-------|----------|---------|
+| **BTMC** (`api.btmc.vn`) | 10 mặt hàng: vàng miếng SJC, **nhẫn tròn trơn VRTL**, bản vàng Đắc Lộc, đồng xu VRTL, trang sức Rồng Thăng Long, nguyên liệu | API trả ~1000 dòng gồm cả bạc — chỉ dòng có `karat` mới là vàng |
+| **PNJ** (`edge-api.pnj.io`) | 20 mặt hàng: **nhẫn trơn PNJ 999.9**, vàng miếng SJC, Kim Bảo, Phúc Lộc Tài, nữ trang 8K–24K | Giá niêm yết bằng **nghìn đồng**, đã nhân 1000 trước khi lưu |
+
+Mỗi lần sync ghi nối (append) ~30 dòng vào sheet `GoldPrice`, giữ nguyên lịch sử.
+Một nguồn lỗi không ảnh hưởng nguồn còn lại.
+
+Phân loại mặt hàng (`classifyGoldType`) suy ra từ tên sản phẩm nên áp dụng được
+ngược lại cho cả dữ liệu cũ: `Vàng nhẫn` · `Vàng miếng` · `Trang sức` · `Nguyên liệu` · `Khác`.
+
+### Tab Giá Vàng trên giao diện
+- **Lọc theo loại vàng** — có riêng mục *Vàng nhẫn*
+- **Bảng giá hiện tại** — nhóm theo thương hiệu SJC / BTMC / PNJ
+- **Biến động lịch sử** — line chart giá mua & bán theo ngày (chọn sản phẩm, khoảng
+  7 / 30 / 90 ngày hoặc tất cả, có crosshair + tooltip) kèm **bảng chi tiết từng ngày**
+  bên dưới với chênh lệch mua-bán và thay đổi so ngày trước
+
+> Lịch sử được gộp theo ngày ở phía server (mỗi ngày lấy bản ghi mới nhất), chỉ đẩy
+> chuỗi đã tổng hợp xuống client thay vì toàn bộ dòng thô.
+
+
 ## ⚙️ Cách hoạt động
 
 ```
