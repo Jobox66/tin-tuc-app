@@ -74,6 +74,35 @@ interface Candidate {
 }
 
 const SUMMARIZER_TIMEOUT_MS = 30_000;
+
+// Tuoi Tre tra pubDate dang "9/17/2026 2:18:00 PM" - KHONG co timezone.
+// new Date() se hieu theo gio cua MAY DANG CHAY: dung khi chay o VN, nhung
+// lech +7h tren GitHub Actions (UTC) khien bai Tuoi Tre luon nhay len dau
+// danh sach va chon mat tin moi that. VNExpress/CafeF co "+0700" nen khong bi.
+const HAS_TIMEZONE = /(Z|GMT|UTC|[+-]\d{2}:?\d{2})\s*$/i;
+
+/**
+ * Doc pubDate ve timestamp.
+ * - Thieu timezone  -> coi nhu gio Viet Nam (+07:00), khong phu thuoc may chay
+ * - Thieu/hong han  -> tra null de caller bo qua bai do (truoc day gan
+ *   new Date() khien bai cu doi lot tin vua dang)
+ * - O tuong lai     -> kep ve hien tai, bai khong the xuat ban o tuong lai
+ */
+export function parsePubDate(raw: string | undefined, now: number = Date.now()): number | null {
+    if (!raw) return null;
+    const text = raw.trim();
+    if (!text) return null;
+
+    let ts = HAS_TIMEZONE.test(text)
+        ? new Date(text).getTime()
+        : new Date(`${text} +07:00`).getTime();
+
+    if (isNaN(ts)) ts = new Date(text).getTime();
+    if (isNaN(ts)) return null;
+
+    return ts > now + 5 * 60_000 ? now : ts;
+}
+
 const SUMMARIZER_CONCURRENCY = 4;
 
 /**
@@ -138,6 +167,7 @@ export async function aggregateNews(
     const existing = new Set(existingUrls);
     const seen = new Set<string>();
     const budget = maxNewItems > 0 ? maxNewItems : Infinity;
+    const runStartedAt = Date.now();
 
     // ===== Giai đoạn 1: đọc RSS song song, gom bài mới THEO TỪNG NGUỒN =====
     // (không gọi summarizer ở bước này)
@@ -165,6 +195,7 @@ export async function aggregateNews(
         let alreadyInSheet = 0;
         let duplicateInRun = 0;
         let tooOld = 0;
+        let noDate = 0;
 
         for (const item of feedItems) {
             const url = (item.link || '').trim();
@@ -175,13 +206,15 @@ export async function aggregateNews(
             if (existing.has(url)) { alreadyInSheet++; continue; }
             if (seen.has(url)) { duplicateInRun++; continue; }
 
-            const pubDate = item.pubDate ? new Date(item.pubDate) : new Date();
-            const timestamp = pubDate.getTime();
-            if (isNaN(timestamp)) {
-                console.warn(`Invalid date for ${url}: ${item.pubDate}`);
+            const timestamp = parsePubDate(item.pubDate, runStartedAt);
+            if (timestamp === null) {
+                console.warn(`  ⚠️ Bỏ qua (pubDate thiếu/không đọc được): ${item.title} [${item.pubDate}]`);
+                noDate++;
+                continue;
             }
+            const pubDate = new Date(timestamp);
 
-            if (sinceTimestamp > 0 && !isNaN(timestamp) && timestamp < sinceTimestamp) {
+            if (sinceTimestamp > 0 && timestamp < sinceTimestamp) {
                 tooOld++;
                 continue;
             }
@@ -199,6 +232,7 @@ export async function aggregateNews(
 
         const skipParts = [`đã có ${alreadyInSheet}`, `trùng trong lượt ${duplicateInRun}`];
         if (sinceTimestamp > 0) skipParts.push(`quá cũ ${tooOld}`);
+        if (noDate > 0) skipParts.push(`thiếu ngày ${noDate}`);
         console.log(`  → ${source.name}: ${items.length} bài mới (bỏ qua: ${skipParts.join(', ')}).`);
         return { name: source.name, items };
     });
