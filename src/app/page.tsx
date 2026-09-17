@@ -5,12 +5,22 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function Home() {
-  const generalRes = await getNewsFromSheets('Sheet1');
-  const financeRes = await getNewsFromSheets('Finance');
-  const internationalRes = await getNewsFromSheets('International');
-  const intlFinanceRes = await getNewsFromSheets('IntlFinance');
-  const intlTechRes = await getNewsFromSheets('IntlTech');
-  const goldRes = await getLatestGoldPricesFromSheets('GoldPrice');
+  // Đọc song song 6 sheet - tuần tự khiến TTFB cộng dồn 6 lượt gọi Google API
+  const [
+    generalRes,
+    financeRes,
+    internationalRes,
+    intlFinanceRes,
+    intlTechRes,
+    goldRes,
+  ] = await Promise.all([
+    getNewsFromSheets('Sheet1'),
+    getNewsFromSheets('Finance'),
+    getNewsFromSheets('International'),
+    getNewsFromSheets('IntlFinance'),
+    getNewsFromSheets('IntlTech'),
+    getLatestGoldPricesFromSheets('GoldPrice'),
+  ]);
 
   const generalNews = generalRes.news;
   const financeNews = financeRes.news;

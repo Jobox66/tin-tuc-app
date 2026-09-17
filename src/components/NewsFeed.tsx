@@ -85,7 +85,7 @@ export default function NewsFeed({
         intlTech: initialIntlTech,
     });
 
-    const [isPending, startTransition] = useTransition();
+    const [, startTransition] = useTransition();
     const [currentPage, setCurrentPage] = useState(1);
     const [showSavedOnly, setShowSavedOnly] = useState(false);
     const itemsPerPage = 15;

@@ -11,19 +11,6 @@ interface GoldPriceBoardProps {
 export default function GoldPriceBoard({ prices, history = [] }: GoldPriceBoardProps) {
     const [viewMode, setViewMode] = useState<'current' | 'history'>('current');
 
-    if (!prices || prices.length === 0) {
-        return (
-            <div className="rounded-2xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 p-20 text-center bg-white/50 dark:bg-zinc-900/50">
-                 <div className="w-16 h-16 bg-zinc-100 dark:bg-zinc-800 rounded-full flex items-center justify-center mx-auto mb-4 text-zinc-400">
-                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                </div>
-                <p className="text-zinc-500 font-medium">Chưa có dữ liệu giá vàng. Vui lòng đợi hệ thống đồng bộ.</p>
-            </div>
-        );
-    }
-
     const worldPrice = prices[0]?.worldPrice || "0";
     const lastUpdate = prices[0]?.timestamp ? new Date(parseInt(prices[0].timestamp)).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : prices[0]?.date;
 
@@ -37,11 +24,13 @@ export default function GoldPriceBoard({ prices, history = [] }: GoldPriceBoardP
         // Extract SJC history only
         const sjc = history.filter(p => p.brand === 'SJC' || p.name.includes('SJC') || p.name.includes('TRÒN TRƠN'));
         
-        // Group by Date to find unique snapshots
+        // Group by Date to find unique snapshots.
+        // Cot date duoc ghi bang toLocaleString('vi-VN') -> "HH:MM:SS D/M/YYYY"
+        // (GIO dung truoc NGAY), nen phai lay token chua dau '/' chu khong phai split(' ')[0].
         const dateMap = new Map<string, typeof sjc>();
         sjc.forEach(item => {
-            const parts = item.date.split(' ');
-            const day = parts[0]; // e.g. "17/04/2026"
+            const day = item.date.split(' ').find(part => part.includes('/'));
+            if (!day) return;
             if (!dateMap.has(day)) {
                 dateMap.set(day, []);
             }
@@ -53,7 +42,8 @@ export default function GoldPriceBoard({ prices, history = [] }: GoldPriceBoardP
 
         // Build chart data
         return sortedDays.map(day => {
-            const items = dateMap.get(day)!;
+            // Sheet được append theo thời gian, nên bản ghi cuối trong ngày là mới nhất
+            const items = [...dateMap.get(day)!].reverse();
             const sjcItem = items.find(i => i.name.includes('SJC'));
             const nhanItem = items.find(i => i.name.includes('TRÒN TRƠN') || i.brand === 'BTMC');
 
@@ -66,6 +56,20 @@ export default function GoldPriceBoard({ prices, history = [] }: GoldPriceBoardP
             };
         });
     }, [history]);
+
+    if (!prices || prices.length === 0) {
+        return (
+            <div className="rounded-2xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 p-20 text-center bg-white/50 dark:bg-zinc-900/50">
+                 <div className="w-16 h-16 bg-zinc-100 dark:bg-zinc-800 rounded-full flex items-center justify-center mx-auto mb-4 text-zinc-400">
+                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <p className="text-zinc-500 font-medium">Chưa có dữ liệu giá vàng. Vui lòng đợi hệ thống đồng bộ.</p>
+            </div>
+        );
+    }
+
 
     const renderTable = (data: GoldPriceRow[], title: string) => {
         if (data.length === 0) return null;

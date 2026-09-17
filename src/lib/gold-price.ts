@@ -21,7 +21,9 @@ export interface GoldPriceSnapshot {
   worldPriceUsd: string;
 }
 
-const BTMC_API_URL = 'http://api.btmc.vn/api/BTMCAPI/getpricebtmc?key=3kd8ub1llcg9t45ez6v7';
+// Key public của BTMC. Cho phép override qua env để không phải sửa code khi BTMC đổi key.
+const BTMC_API_KEY = process.env.BTMC_API_KEY || '3kd8ub1llcg9t45ez6v7';
+const BTMC_API_URL = `https://api.btmc.vn/api/BTMCAPI/getpricebtmc?key=${BTMC_API_KEY}`;
 
 /**
  * Classify brand from product name
@@ -124,21 +126,4 @@ export async function fetchGoldPrices(): Promise<GoldPriceSnapshot> {
     fetchedAt: new Date().toISOString(),
     worldPriceUsd: worldPrice,
   };
-}
-
-/**
- * Format price to Vietnamese format (e.g. 16,750,000)
- */
-export function formatVND(price: number): string {
-  if (price === 0) return '—';
-  return price.toLocaleString('vi-VN');
-}
-
-/**
- * Format price in millions (e.g. "167.5 tr")
- */
-export function formatMillions(price: number): string {
-  if (price === 0) return '—';
-  const millions = price / 100000;
-  return `${millions.toLocaleString('vi-VN', { maximumFractionDigits: 1 })}`;
 }

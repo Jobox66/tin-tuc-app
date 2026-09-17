@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { GoldPriceItem, GoldPriceSnapshot } from './gold-price';
+import { GoldPriceSnapshot } from './gold-price';
 
 export interface NewsItem {
   title: string;
@@ -25,7 +25,7 @@ export function getAuthClient() {
   // Robust formatting for private key - handles ALL environments:
   // 1. .env file: key may be wrapped in quotes with literal \n
   // 2. GitHub Secrets: key may have real newlines, or escaped \n
-  let formattedKey = privateKey
+  const formattedKey = privateKey
     .replace(/^"|"$/g, '')     // Remove surrounding quotes if present
     .replace(/\\n/g, '\n')     // Replace literal \n with real newline
     .replace(/\\\\n/g, '\n');  // Replace double-escaped \\n with real newline
@@ -96,13 +96,7 @@ export async function saveNewsToSheets(newsItems: NewsItem[], sheetName: string 
     const auth = getAuthClient();
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // 1. Clear existing data (A2:H)
-    await sheets.spreadsheets.values.clear({
-      spreadsheetId,
-      range: `${sheetName}!A2:H`,
-    });
-
-    // 2. Prepare values
+    // 1. Prepare values
     const values = newsItems.map(item => [
       item.title,
       item.summary,
@@ -114,17 +108,24 @@ export async function saveNewsToSheets(newsItems: NewsItem[], sheetName: string 
       item.isSaved ? 'TRUE' : 'FALSE',
     ]);
 
-    // 3. Update sheet
+    // 2. Ghi dữ liệu mới TRƯỚC. Nếu clear trước rồi update sau, một lỗi mạng
+    // giữa hai bước sẽ để lại sheet trống hoàn toàn.
     if (values.length > 0) {
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `${sheetName}!A2:H`,
+        range: `${sheetName}!A2:H${values.length + 1}`,
         valueInputOption: 'RAW',
         requestBody: {
           values,
         },
       });
     }
+
+    // 3. Xoá phần dư của lần ghi trước (nếu danh sách mới ngắn hơn)
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: `${sheetName}!A${values.length + 2}:H`,
+    });
 
     // 4. Update Heartbeat (Cell Z1) to track when the JOBS actually run
     try {

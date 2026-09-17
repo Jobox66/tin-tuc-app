@@ -115,6 +115,10 @@ python -c "import nltk; nltk.download('punkt'); nltk.download('punkt_tab')"
 GOOGLE_SHEET_ID=your_google_sheet_id
 GOOGLE_SERVICE_ACCOUNT_EMAIL=your_service_account@project.iam.gserviceaccount.com
 GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+
+# Tuy chon
+BTMC_API_KEY=...        # override key API gia vang neu BTMC doi key
+PYTHON_PATH=python3     # mac dinh dung .venv trong project
 ```
 
 ### Bước 4: Tạo Google Sheets
@@ -184,9 +188,11 @@ File: `.github/workflows/sync.yml`
 |--------|---------|----------|
 | `maxItemsPerSource` | 15 | Giới hạn số bài lấy từ mỗi nguồn RSS |
 | `maxNewItems` | 10 | Dừng sớm khi đã có đủ bài mới |
-| `timeout` (summarizer) | 30 giây | Tránh treo khi URL không phản hồi |
+| `SUMMARIZER_TIMEOUT_MS` | 30 giây | Tránh treo khi URL không phản hồi |
+| `SUMMARIZER_CONCURRENCY` | 4 | Tóm tắt song song 4 bài (trước tuần tự, chặn event loop) |
 | Try/catch per category | ✅ | 1 category lỗi không ảnh hưởng category khác |
 | Heartbeat-only update | ✅ | Không ghi lại toàn bộ sheet khi không có tin mới |
+| Ghi trước - xoá sau | ✅ | Lỗi giữa chừng không để lại sheet trống |
 
 
 ## 📝 License

@@ -2,23 +2,7 @@
 
 import { google } from 'googleapis';
 import { revalidatePath } from 'next/cache';
-
-function getAuthClient() {
-    const privateKey = process.env.GOOGLE_PRIVATE_KEY;
-    const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-
-    if (!privateKey || !clientEmail) {
-        throw new Error('Google Sheets configuration missing');
-    }
-
-    const formattedKey = privateKey.replace(/^"|"$/g, '').replace(/\\n/g, '\n');
-
-    return new google.auth.JWT({
-        email: clientEmail,
-        key: formattedKey,
-        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-}
+import { getAuthClient } from '@/lib/google-sheets';
 
 export async function updateArticleStatus(
     url: string,

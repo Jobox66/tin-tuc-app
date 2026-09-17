@@ -103,7 +103,9 @@ async function syncGold() {
             await saveGoldPricesToSheets(snapshot, 'GoldPrice');
             console.log(`🎉 Gold Sync Complete!`);
         } else {
-            console.log(`⚠️ No gold prices fetched. Skipping sheet update.`);
+            // Truoc day chi log roi return -> gold chet am tham suot nhieu thang
+            // ma workflow van bao "success". Nem loi de no hien trong SYNC PARTIAL.
+            throw new Error('BTMC API tra ve 0 mat hang vang - co the API da doi format du lieu.');
         }
     } catch (e) {
         console.error(`❌ Gold Sync FAILED:`, e);
