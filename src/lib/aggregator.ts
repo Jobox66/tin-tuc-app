@@ -12,14 +12,40 @@ export interface NewsSource {
     url: string;
 }
 
+// Bám theo chuyên mục thay vì "tin mới nhất" để lọc bớt giải trí, thể thao,
+// đời sống... - thứ chiếm phần lớn feed tổng hợp.
 export const GENERAL_SOURCES: NewsSource[] = [
     {
-        name: 'VNExpress - Tin mới nhất',
-        url: 'https://vnexpress.net/rss/tin-moi-nhat.rss',
+        name: 'VNExpress - Thời sự',
+        url: 'https://vnexpress.net/rss/thoi-su.rss',
     },
     {
-        name: 'Tuổi Trẻ - Tin mới nhất',
-        url: 'https://tuoitre.vn/rss/tin-moi-nhat.rss',
+        name: 'VNExpress - Thế giới',
+        url: 'https://vnexpress.net/rss/the-gioi.rss',
+    },
+    {
+        name: 'VNExpress - Kinh doanh',
+        url: 'https://vnexpress.net/rss/kinh-doanh.rss',
+    },
+    {
+        name: 'VNExpress - Khoa học công nghệ',
+        url: 'https://vnexpress.net/rss/khoa-hoc-cong-nghe.rss',
+    },
+    {
+        name: 'Tuổi Trẻ - Thời sự',
+        url: 'https://tuoitre.vn/rss/thoi-su.rss',
+    },
+    {
+        name: 'Tuổi Trẻ - Thế giới',
+        url: 'https://tuoitre.vn/rss/the-gioi.rss',
+    },
+    {
+        name: 'Tuổi Trẻ - Kinh doanh',
+        url: 'https://tuoitre.vn/rss/kinh-doanh.rss',
+    },
+    {
+        name: 'Tuổi Trẻ - Khoa học',
+        url: 'https://tuoitre.vn/rss/khoa-hoc.rss',
     }
 ];
 
@@ -36,28 +62,6 @@ export const FINANCE_SOURCES: NewsSource[] = [
         name: 'Báo Đầu tư - Chứng khoán',
         url: 'https://baodautu.vn/chung-khoan/rss',
     }
-];
-
-export const INTERNATIONAL_SOURCES: NewsSource[] = [
-    { name: 'BBC World', url: 'http://feeds.bbci.co.uk/news/world/rss.xml' },
-    { name: 'Reuters - World', url: 'https://www.rss.reuters.com/news/worldNews' },
-    { name: 'CNN - Top Stories', url: 'http://rss.cnn.com/rss/edition.rss' },
-    { name: 'Al Jazeera', url: 'https://www.aljazeera.com/xml/rss/all.xml' },
-    { name: 'The Guardian - World', url: 'https://www.theguardian.com/world/rss' },
-    { name: 'AP News - Top Stories', url: 'https://rsshub.app/apnews/topics/apf-topnews' },
-];
-
-export const INTL_FINANCE_SOURCES: NewsSource[] = [
-    { name: 'CNBC - Top News', url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html' },
-    { name: 'Bloomberg', url: 'https://rsshub.app/bloomberg' },
-    { name: 'MarketWatch - Top Stories', url: 'http://feeds.marketwatch.com/marketwatch/topstories/' },
-    { name: 'Financial Times - Home', url: 'https://www.ft.com/rss/home' },
-];
-
-export const INTL_TECH_SOURCES: NewsSource[] = [
-    { name: 'TechCrunch', url: 'https://techcrunch.com/feed/' },
-    { name: 'The Verge', url: 'https://www.theverge.com/rss/index.xml' },
-    { name: 'Ars Technica', url: 'https://feeds.arstechnica.com/arstechnica/index' },
 ];
 
 interface Candidate {
@@ -124,20 +128,20 @@ async function summarizeWithPython(url: string): Promise<{ summary: string; imag
 export async function aggregateNews(
     sources: NewsSource[],
     existingUrls: string[] = [],
-    maxItemsPerSource: number = 15,
-    maxNewItems: number = 10
+    // Feed cua VNExpress/Tuoi Tre tra 50-60 bai; quet het de khong bo sot
+    maxItemsPerSource: number = 100,
+    // 0 = KHONG gioi han. Moi lan quet lay bang het bai chua co trong sheet.
+    maxNewItems: number = 0,
+    // Neu dat, bo qua bai cu hon moc nay (dung cho lan backfill dau tien)
+    sinceTimestamp: number = 0
 ): Promise<NewsItem[]> {
     const existing = new Set(existingUrls);
     const seen = new Set<string>();
-    const candidates: Candidate[] = [];
+    const budget = maxNewItems > 0 ? maxNewItems : Infinity;
 
-    // ===== Giai đoạn 1: thu thập bài mới từ RSS (không gọi summarizer) =====
-    for (const source of sources) {
-        if (candidates.length >= maxNewItems) {
-            console.log(`🛑 Reached max new items limit (${maxNewItems}). Skipping remaining source: ${source.name}`);
-            continue;
-        }
-
+    // ===== Giai đoạn 1: đọc RSS song song, gom bài mới THEO TỪNG NGUỒN =====
+    // (không gọi summarizer ở bước này)
+    const perSource = await Promise.all(sources.map(async (source) => {
         try {
             console.log(`Fetching from: ${source.name}...`);
             // Add cache-buster to URL
@@ -146,53 +150,81 @@ export async function aggregateNews(
 
             // Limit items per source
             const feedItems = feed.items.slice(0, maxItemsPerSource);
-
-            let skippedCount = 0;
-            for (const item of feedItems) {
-                const url = (item.link || '').trim();
-                if (!url) {
-                    skippedCount++;
-                    continue;
-                }
-
-                // Skip if already in existingUrls OR already added in this run
-                const isExisting = existing.has(url);
-                const isDuplicate = seen.has(url);
-
-                if (isExisting || isDuplicate) {
-                    console.log(`  ⏩ Skipping: ${isExisting ? 'Already in sheet' : 'Duplicate in run'} (${item.title})`);
-                    skippedCount++;
-                    continue;
-                }
-
-                // Stop processing more items if we've hit the max new items limit
-                if (candidates.length >= maxNewItems) {
-                    console.log(`  🛑 Reached max new items limit (${maxNewItems}). Stopping source: ${source.name}`);
-                    break;
-                }
-
-                const pubDate = item.pubDate ? new Date(item.pubDate) : new Date();
-                const timestamp = pubDate.getTime();
-                if (isNaN(timestamp)) {
-                    console.warn(`Invalid date for ${url}: ${item.pubDate}`);
-                }
-
-                seen.add(url);
-                candidates.push({
-                    title: item.title || '',
-                    url,
-                    summary: cleanSummary(item.contentSnippet || item.summary || ''),
-                    thumbnail: extractThumbnail(item.content || item.summary || ''),
-                    pubDate,
-                    timestamp,
-                });
-            }
-
-            console.log(`Fetched ${feed.items.length} items from ${source.name}. Processed: ${feedItems.length}. New: ${feedItems.length - skippedCount}. Skipped: ${skippedCount}.`);
+            console.log(`Fetched ${feed.items.length} items from ${source.name}. Processed: ${feedItems.length}.`);
+            return { source, feedItems };
         } catch (error) {
             console.error(`Error fetching from ${source.name}:`, error);
+            return { source, feedItems: [] };
+        }
+    }));
+
+    // Lọc trùng tuần tự (Set dùng chung) để một bài xuất hiện ở 2 chuyên mục
+    // chỉ được giữ một lần
+    const queues: { name: string; items: Candidate[] }[] = perSource.map(({ source, feedItems }) => {
+        const items: Candidate[] = [];
+        let alreadyInSheet = 0;
+        let duplicateInRun = 0;
+        let tooOld = 0;
+
+        for (const item of feedItems) {
+            const url = (item.link || '').trim();
+            if (!url) continue;
+
+            // Dem gon thay vi log tung dong - khi sheet da co vai nghin bai thi
+            // log tung dong bi bo qua se lam ngap log CI
+            if (existing.has(url)) { alreadyInSheet++; continue; }
+            if (seen.has(url)) { duplicateInRun++; continue; }
+
+            const pubDate = item.pubDate ? new Date(item.pubDate) : new Date();
+            const timestamp = pubDate.getTime();
+            if (isNaN(timestamp)) {
+                console.warn(`Invalid date for ${url}: ${item.pubDate}`);
+            }
+
+            if (sinceTimestamp > 0 && !isNaN(timestamp) && timestamp < sinceTimestamp) {
+                tooOld++;
+                continue;
+            }
+
+            seen.add(url);
+            items.push({
+                title: item.title || '',
+                url,
+                summary: cleanSummary(item.contentSnippet || item.summary || ''),
+                thumbnail: extractThumbnail(item.content || item.summary || ''),
+                pubDate,
+                timestamp,
+            });
+        }
+
+        const skipParts = [`đã có ${alreadyInSheet}`, `trùng trong lượt ${duplicateInRun}`];
+        if (sinceTimestamp > 0) skipParts.push(`quá cũ ${tooOld}`);
+        console.log(`  → ${source.name}: ${items.length} bài mới (bỏ qua: ${skipParts.join(', ')}).`);
+        return { name: source.name, items };
+    });
+
+    // Chia ngân sách maxNewItems theo VÒNG TRÒN giữa các nguồn.
+    // Nếu duyệt tuần tự, nguồn đầu tiên ăn hết quota và các nguồn sau không bao
+    // giờ tới lượt - với 5 nguồn/chuyên mục thì 4 nguồn sau sẽ luôn trắng tay.
+    const candidates: Candidate[] = [];
+    const cursors = new Array(queues.length).fill(0);
+    let progressed = true;
+
+    while (candidates.length < budget && progressed) {
+        progressed = false;
+        for (let q = 0; q < queues.length && candidates.length < budget; q++) {
+            const queue = queues[q];
+            if (cursors[q] < queue.items.length) {
+                candidates.push(queue.items[cursors[q]++]);
+                progressed = true;
+            }
         }
     }
+
+    const share = queues
+        .map((q, i) => `${q.name}=${cursors[i]}`)
+        .join(', ');
+    console.log(`📊 Lấy ${candidates.length} bài${budget === Infinity ? ' (không giới hạn)' : `/${maxNewItems} suất`}: ${share}`);
 
     if (candidates.length === 0) return [];
 

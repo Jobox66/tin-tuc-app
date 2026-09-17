@@ -24,12 +24,12 @@ Web application tổng hợp tin tức đa lĩnh vực từ nhiều nguồn RSS,
 tin-tuc-app/
 ├── src/
 │   ├── app/                  # Next.js App Router pages
-│   │   ├── page.tsx          # Trang chủ - hiển thị tin tức 5 mục
+│   │   ├── page.tsx          # Trang chủ - hiển thị tin tức 2 mục + giá vàng
 │   │   └── actions.ts        # Server actions (save/hide bài viết)
 │   ├── components/
-│   │   └── NewsFeed.tsx      # Component hiển thị tin tức với 5 tab
+│   │   └── NewsFeed.tsx      # Component hiển thị tin tức (2 tab tin + tab giá vàng)
 │   ├── lib/
-│   │   ├── aggregator.ts     # RSS fetcher + nguồn tin (13 nguồn)
+│   │   ├── aggregator.ts     # RSS fetcher + nguồn tin (11 nguồn)
 │   │   └── google-sheets.ts  # Google Sheets API (CRUD + heartbeat)
 │   └── scripts/
 │       ├── sync-news.ts      # Script sync chính (chạy qua GitHub Actions)
@@ -42,22 +42,15 @@ tin-tuc-app/
 
 ---
 
-## 📰 Nguồn tin (13 nguồn RSS)
-
-### 🇻🇳 Tin Việt Nam
+## 📰 Nguồn tin (11 nguồn RSS)
 
 | Mục | Nguồn | Sheet |
 |-----|-------|-------|
-| **Tin Chung** | VNExpress, Tuổi Trẻ | `Sheet1` |
+| **Tin Chung** | VNExpress ×4 + Tuổi Trẻ ×4 — mỗi báo lấy 4 chuyên mục: *Thời sự · Thế giới · Kinh doanh · Khoa học công nghệ* | `Sheet1` |
 | **Tài Chính** | Vietstock, CafeF, Báo Đầu Tư | `Finance` |
 
-### 🌍 Tin Quốc Tế
-
-| Mục | Nguồn | Sheet |
-|-----|-------|-------|
-| **Quốc Tế** | BBC World, Reuters, CNN, Al Jazeera, The Guardian, AP News | `International` |
-| **Tài Chính QT** | CNBC, Bloomberg, MarketWatch, Financial Times | `IntlFinance` |
-| **Công Nghệ** | TechCrunch, The Verge, Ars Technica | `IntlTech` |
+> **Tin Chung dùng feed chuyên mục thay vì `tin-moi-nhat`.** Feed tổng hợp của cả hai
+> báo phần lớn là giải trí, thể thao, đời sống — bám chuyên mục giúp giữ nội dung tập trung.
 
 ---
 
@@ -90,7 +83,7 @@ ngược lại cho cả dữ liệu cũ: `Vàng nhẫn` · `Vàng miếng` · `T
 ```
 ┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────┐
 │ RSS Feeds   │────▶│ aggregator   │────▶│ summarizer   │────▶│ Google   │
-│ (13 nguồn)  │     │ (TypeScript) │     │ (Python NLP) │     │ Sheets   │
+│ (11 nguồn)  │     │ (TypeScript) │     │ (Python NLP) │     │ Sheets   │
 └─────────────┘     └──────────────┘     └──────────────┘     └────┬─────┘
                                                                    │
                     ┌──────────────┐     ┌──────────────┐          │
@@ -101,7 +94,7 @@ ngược lại cho cả dữ liệu cũ: `Vàng nhẫn` · `Vàng miếng` · `T
 
 ### Luồng Sync (mỗi 30 phút):
 1. GitHub Actions trigger `sync-news.ts`
-2. Với mỗi category (5 mục), tuần tự:
+2. Với mỗi category (2 mục), tuần tự:
    - Đọc tin hiện tại từ Google Sheets
    - Fetch RSS feeds → lấy tối đa **15 bài/nguồn**
    - Lọc bỏ bài đã tồn tại (theo URL)
@@ -147,12 +140,10 @@ PYTHON_PATH=python3     # mac dinh dung .venv trong project
 
 ### Bước 4: Tạo Google Sheets
 
-Tạo 1 Google Spreadsheet với **5 sheet tab**:
-- `Sheet1` — Tin Chung (VN)
-- `Finance` — Tài Chính (VN)
-- `International` — Tin Quốc Tế
-- `IntlFinance` — Tài Chính Quốc Tế
-- `IntlTech` — Công Nghệ
+Tạo 1 Google Spreadsheet với **3 sheet tab**:
+- `Sheet1` — Tin Chung
+- `Finance` — Tài Chính
+- `GoldPrice` — Lịch sử giá vàng
 
 > ⚠️ Chia sẻ spreadsheet cho Service Account email ở trên với quyền **Editor**.
 
@@ -189,6 +180,7 @@ npm start
 | `npm run lint` | Check linting errors |
 | `npm run sync` | Sync tin tức (CI/CD, không cần .env file) |
 | `npm run sync:local` | Sync tin tức (local, dùng .env file) |
+| `npm run sync:local -- --today` | Backfill: chỉ lấy bài đăng trong ngày hôm nay |
 
 ---
 
@@ -206,14 +198,18 @@ File: `.github/workflows/sync.yml`
 
 ---
 
-## 🔐 Cấu hình Performance & Error Handling (v4)
+## 🔐 Cấu hình Performance & Error Handling (v5)
 
 | Config | Giá trị | Mục đích |
 |--------|---------|----------|
-| `maxItemsPerSource` | 15 | Giới hạn số bài lấy từ mỗi nguồn RSS |
-| `maxNewItems` | 10 | Dừng sớm khi đã có đủ bài mới |
+| `maxItemsPerSource` | 100 | Quét hết feed (VNExpress/Tuổi Trẻ trả 50-60 bài) |
+| `maxNewItems` | **0 = không giới hạn** | Mỗi lượt lấy bằng hết bài chưa có trong sheet |
+| `MAX_ITEMS_PER_SHEET` | 5000 | Trần số bài giữ lại mỗi sheet (trước là 500) |
 | `SUMMARIZER_TIMEOUT_MS` | 30 giây | Tránh treo khi URL không phản hồi |
 | `SUMMARIZER_CONCURRENCY` | 4 | Tóm tắt song song 4 bài (trước tuần tự, chặn event loop) |
+| Chia suất vòng tròn | ✅ | Khi có đặt `maxNewItems`, chia đều cho mọi nguồn |
+| Nới lưới tự động | ✅ | `values.update` không tự mở rộng sheet quá 1000 dòng - phải nới trước khi ghi |
+| Ghi theo lô 1000 dòng | ✅ | Vài nghìn dòng tóm tắt trong 1 request dễ vượt giới hạn payload |
 | Try/catch per category | ✅ | 1 category lỗi không ảnh hưởng category khác |
 | Heartbeat-only update | ✅ | Không ghi lại toàn bộ sheet khi không có tin mới |
 | Ghi trước - xoá sau | ✅ | Lỗi giữa chừng không để lại sheet trống |

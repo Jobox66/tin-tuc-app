@@ -5,24 +5,18 @@ import { useState, useTransition, useMemo } from "react";
 import { updateArticleStatus } from "@/app/actions";
 import GoldPriceBoard from "./GoldPriceBoard";
 
-type CategoryKey = "general" | "finance" | "international" | "intlFinance" | "intlTech";
+type CategoryKey = "general" | "finance";
 type TabKey = CategoryKey | "gold";
 
 const TAB_LABELS: Record<TabKey, string> = {
     general: "Tin Chung",
     finance: "Tài Chính",
-    international: "Quốc Tế",
-    intlFinance: "Tài Chính QT",
-    intlTech: "Công Nghệ",
     gold: "Giá Vàng",
 };
 
 const CATEGORY_SHEETS: Record<CategoryKey, string> = {
     general: "Sheet1",
     finance: "Finance",
-    international: "International",
-    intlFinance: "IntlFinance",
-    intlTech: "IntlTech",
 };
 
 // Helper function to generate pagination array with ellipsis
@@ -56,9 +50,6 @@ function getPaginationItems(currentPage: number, totalPages: number) {
 interface NewsFeedProps {
     initialGeneral: NewsItem[];
     initialFinance: NewsItem[];
-    initialInternational: NewsItem[];
-    initialIntlFinance: NewsItem[];
-    initialIntlTech: NewsItem[];
     initialGoldPrices: GoldPriceRow[];
     initialGoldSeries?: GoldSeries[];
 }
@@ -66,9 +57,6 @@ interface NewsFeedProps {
 export default function NewsFeed({
     initialGeneral,
     initialFinance,
-    initialInternational,
-    initialIntlFinance,
-    initialIntlTech,
     initialGoldPrices,
     initialGoldSeries = [],
 }: NewsFeedProps) {
@@ -80,9 +68,6 @@ export default function NewsFeed({
     const [articles, setArticles] = useState<Record<CategoryKey, NewsItem[]>>({
         general: initialGeneral,
         finance: initialFinance,
-        international: initialInternational,
-        intlFinance: initialIntlFinance,
-        intlTech: initialIntlTech,
     });
 
     const [, startTransition] = useTransition();

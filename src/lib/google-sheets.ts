@@ -88,6 +88,48 @@ export async function getNewsFromSheets(sheetName: string = 'Sheet1'): Promise<{
   }
 }
 
+/**
+ * Google Sheets KHONG tu noi luoi khi values.update ghi qua so dong hien co
+ * (khac voi values.append) - se bao "exceeds grid limits". Ham nay nong so dong
+ * len truoc khi ghi. Sheet mac dinh chi co 1000 dong.
+ */
+async function ensureRowCapacity(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string,
+  sheetName: string,
+  neededRows: number
+): Promise<void> {
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets.properties(sheetId,title,gridProperties/rowCount)',
+  });
+
+  const target = meta.data.sheets?.find(sh => sh.properties?.title === sheetName);
+  if (!target?.properties) {
+    console.warn(`[GoogleSheets] Khong tim thay sheet ${sheetName} de kiem tra so dong.`);
+    return;
+  }
+
+  const current = target.properties.gridProperties?.rowCount || 0;
+  if (current >= neededRows) return;
+
+  console.log(`[GoogleSheets] ${sheetName}: nới lưới ${current} -> ${neededRows} dòng.`);
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [{
+        updateSheetProperties: {
+          properties: {
+            sheetId: target.properties.sheetId,
+            gridProperties: { rowCount: neededRows },
+          },
+          fields: 'gridProperties.rowCount',
+        },
+      }],
+    },
+  });
+}
+
 export async function saveNewsToSheets(newsItems: NewsItem[], sheetName: string = 'Sheet1'): Promise<void> {
   const spreadsheetId = process.env.GOOGLE_SHEET_ID;
   if (!spreadsheetId) return;
@@ -111,14 +153,26 @@ export async function saveNewsToSheets(newsItems: NewsItem[], sheetName: string 
     // 2. Ghi dữ liệu mới TRƯỚC. Nếu clear trước rồi update sau, một lỗi mạng
     // giữa hai bước sẽ để lại sheet trống hoàn toàn.
     if (values.length > 0) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `${sheetName}!A2:H${values.length + 1}`,
-        valueInputOption: 'RAW',
-        requestBody: {
-          values,
-        },
-      });
+      await ensureRowCapacity(sheets, spreadsheetId, sheetName, values.length + 1);
+
+      // Ghi theo lô - vài nghìn dòng tóm tắt trong 1 request dễ vượt giới hạn
+      // kích thước payload của Sheets API.
+      const CHUNK = 1000;
+      for (let i = 0; i < values.length; i += CHUNK) {
+        const chunk = values.slice(i, i + CHUNK);
+        const startRow = 2 + i;
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${sheetName}!A${startRow}:H${startRow + chunk.length - 1}`,
+          valueInputOption: 'RAW',
+          requestBody: {
+            values: chunk,
+          },
+        });
+        if (values.length > CHUNK) {
+          console.log(`[GoogleSheets] ${sheetName}: đã ghi ${Math.min(i + CHUNK, values.length)}/${values.length} dòng.`);
+        }
+      }
     }
 
     // 3. Xoá phần dư của lần ghi trước (nếu danh sách mới ngắn hơn)

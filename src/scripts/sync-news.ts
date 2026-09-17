@@ -1,8 +1,24 @@
-import { aggregateNews, GENERAL_SOURCES, FINANCE_SOURCES, INTERNATIONAL_SOURCES, INTL_FINANCE_SOURCES, INTL_TECH_SOURCES, NewsSource } from '../lib/aggregator';
+import { aggregateNews, GENERAL_SOURCES, FINANCE_SOURCES, NewsSource } from '../lib/aggregator';
 import { saveNewsToSheets, getNewsFromSheets, updateHeartbeatOnly, NewsItem, saveGoldPricesToSheets } from '../lib/google-sheets';
 import { fetchGoldPrices } from '../lib/gold-price';
 
-const SYNC_VERSION = "2026-03-09-v4";
+const SYNC_VERSION = "2026-09-17-v5";
+
+// Tran so bai giu lai moi sheet
+const MAX_ITEMS_PER_SHEET = 5000;
+
+// Chay `npm run sync:local -- --today` de backfill: chi lay bai dang trong ngay.
+// Khong co co nay thi lay TAT CA bai chua co trong sheet.
+const TODAY_ONLY = process.argv.includes('--today');
+
+/** Moc 00:00 hom nay theo gio Viet Nam */
+function startOfTodayVN(): number {
+    const ymd = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
+    return new Date(`${ymd}T00:00:00+07:00`).getTime();
+}
 
 // ============= STEP 0: Validate Environment =============
 function validateEnv() {
@@ -49,8 +65,9 @@ async function syncCategory(name: string, sources: NewsSource[], sheetName: stri
     const existingUrls = existingNews.map(n => n.url.trim());
 
     // 2. Aggregate new news (passing existingUrls to skip re-summarizing)
-    console.log(`🌐 Step 2: Aggregating new news from ${sources.length} sources...`);
-    const newNews = await aggregateNews(sources, existingUrls);
+    const sinceTs = TODAY_ONLY ? startOfTodayVN() : 0;
+    console.log(`🌐 Step 2: Aggregating new news from ${sources.length} sources${TODAY_ONLY ? ' (CHI TRONG NGAY HOM NAY)' : ' (lay het bai moi)'}...`);
+    const newNews = await aggregateNews(sources, existingUrls, 100, 0, sinceTs);
     console.log(`   ✅ Aggregated ${newNews.length} NEW news items for ${name}.`);
 
     if (newNews.length === 0) {
@@ -84,8 +101,11 @@ async function syncCategory(name: string, sources: NewsSource[], sheetName: stri
         return timeB - timeA;
     });
 
-    // Limit to 500 items
-    const finalNews = mergedNews.slice(0, 500);
+    // Giu lai toi da MAX_ITEMS_PER_SHEET bai moi nhat
+    const finalNews = mergedNews.slice(0, MAX_ITEMS_PER_SHEET);
+    if (mergedNews.length > MAX_ITEMS_PER_SHEET) {
+        console.log(`   ✂️ Cắt bớt ${mergedNews.length - MAX_ITEMS_PER_SHEET} bài cũ nhất (trần ${MAX_ITEMS_PER_SHEET}).`);
+    }
     console.log(`   Total after merge: ${finalNews.length} items.`);
 
     // 4. Save back to Google Sheets
@@ -137,9 +157,6 @@ async function sync() {
         const categories: { name: string; sources: NewsSource[]; sheet: string }[] = [
             { name: 'General', sources: GENERAL_SOURCES, sheet: 'Sheet1' },
             { name: 'Finance', sources: FINANCE_SOURCES, sheet: 'Finance' },
-            { name: 'International', sources: INTERNATIONAL_SOURCES, sheet: 'International' },
-            { name: 'IntlFinance', sources: INTL_FINANCE_SOURCES, sheet: 'IntlFinance' },
-            { name: 'IntlTech', sources: INTL_TECH_SOURCES, sheet: 'IntlTech' },
         ];
 
         // Sync each category independently

@@ -6,27 +6,14 @@ export const revalidate = 0;
 
 export default async function Home() {
   // Đọc song song 6 sheet - tuần tự khiến TTFB cộng dồn 6 lượt gọi Google API
-  const [
-    generalRes,
-    financeRes,
-    internationalRes,
-    intlFinanceRes,
-    intlTechRes,
-    goldRes,
-  ] = await Promise.all([
+  const [generalRes, financeRes, goldRes] = await Promise.all([
     getNewsFromSheets('Sheet1'),
     getNewsFromSheets('Finance'),
-    getNewsFromSheets('International'),
-    getNewsFromSheets('IntlFinance'),
-    getNewsFromSheets('IntlTech'),
     getLatestGoldPricesFromSheets('GoldPrice'),
   ]);
 
   const generalNews = generalRes.news;
   const financeNews = financeRes.news;
-  const internationalNews = internationalRes.news;
-  const intlFinanceNews = intlFinanceRes.news;
-  const intlTechNews = intlTechRes.news;
   const heartbeat = generalRes.heartbeat || financeRes.heartbeat;
 
   // Sorting helper
@@ -39,12 +26,9 @@ export default async function Home() {
 
   const sortedGeneral = sortByTimestamp(generalNews);
   const sortedFinance = sortByTimestamp(financeNews);
-  const sortedInternational = sortByTimestamp(internationalNews);
-  const sortedIntlFinance = sortByTimestamp(intlFinanceNews);
-  const sortedIntlTech = sortByTimestamp(intlTechNews);
 
   // Find latest article timestamp
-  const allNews = [...generalNews, ...financeNews, ...internationalNews, ...intlFinanceNews, ...intlTechNews];
+  const allNews = [...generalNews, ...financeNews];
   const lastArticleTime = allNews.length > 0
     ? new Date(Math.max(...allNews.map(n => n.timestamp))).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })
     : 'Chưa có dữ liệu';
@@ -65,7 +49,7 @@ export default async function Home() {
           <div className="flex flex-col items-end gap-1">
             <div className="flex items-center gap-4">
               <div className="text-sm text-zinc-500 dark:text-zinc-400 font-medium">
-                {generalNews.length + financeNews.length + internationalNews.length + intlFinanceNews.length + intlTechNews.length} bài báo
+                {generalNews.length + financeNews.length} bài báo
               </div>
               <div className="px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-xs font-bold text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-800">
                 Multi-Tab Sync
@@ -75,7 +59,7 @@ export default async function Home() {
               <span>Tin mới nhất: {lastArticleTime}</span>
               <span>Hệ thống quét lúc: {systemRunTime}</span>
               <span className="text-indigo-400 font-bold mt-1">
-                Tổng: {generalNews.length} (Chung) | {financeNews.length} (TC) | {internationalNews.length} (QT) | {intlFinanceNews.length} (TC-QT) | {intlTechNews.length} (CN)
+                Tổng: {generalNews.length} (Tin Chung) | {financeNews.length} (Tài Chính)
               </span>
             </div>
           </div>
@@ -96,9 +80,6 @@ export default async function Home() {
         <NewsFeed
           initialGeneral={sortedGeneral}
           initialFinance={sortedFinance}
-          initialInternational={sortedInternational}
-          initialIntlFinance={sortedIntlFinance}
-          initialIntlTech={sortedIntlTech}
           initialGoldPrices={goldRes.prices}
           initialGoldSeries={goldRes.series}
         />
