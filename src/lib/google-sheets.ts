@@ -244,6 +244,12 @@ export interface GoldHistoryPoint {
   sell: number;
 }
 
+/** Giá vàng thế giới (USD/oz) chốt theo ngày */
+export interface GoldWorldPoint {
+  day: string;
+  usd: number;
+}
+
 /** Chuỗi lịch sử của một sản phẩm, đã gộp theo ngày */
 export interface GoldSeries {
   name: string;
@@ -331,11 +337,16 @@ export async function saveGoldPricesToSheets(snapshot: GoldPriceSnapshot, sheetN
  * Gộp các dòng lịch sử thành chuỗi theo sản phẩm + theo ngày.
  * Trong mỗi ngày lấy bản ghi CUỐI (mới nhất) vì sheet được append theo thời gian.
  */
-function buildSeries(rows: GoldPriceRow[]): GoldSeries[] {
+function buildSeries(rows: GoldPriceRow[]): { series: GoldSeries[]; world: GoldWorldPoint[] } {
   const byProduct = new Map<string, { brand: string; name: string; days: Map<string, GoldHistoryPoint> }>();
+  // Gia the gioi giong nhau o moi dong trong cung mot snapshot -> gom rieng theo ngay
+  const worldByDay = new Map<string, number>();
 
   for (const row of rows) {
     if (!row.name) continue;
+
+    const usd = toNumber(row.worldPrice);
+    if (usd > 0) worldByDay.set(extractDay(row.date), usd);
     const key = `${row.brand}|${row.name}`;
     let entry = byProduct.get(key);
     if (!entry) {
@@ -350,7 +361,7 @@ function buildSeries(rows: GoldPriceRow[]): GoldSeries[] {
     });
   }
 
-  return Array.from(byProduct.values())
+  const series = Array.from(byProduct.values())
     .map(entry => ({
       name: entry.name,
       brand: entry.brand,
@@ -358,15 +369,21 @@ function buildSeries(rows: GoldPriceRow[]): GoldSeries[] {
       points: Array.from(entry.days.values()).slice(-MAX_HISTORY_DAYS),
     }))
     .filter(s => s.points.length > 0);
+
+  const world = Array.from(worldByDay.entries())
+    .map(([day, usd]) => ({ day, usd }))
+    .slice(-MAX_HISTORY_DAYS);
+
+  return { series, world };
 }
 
 /**
  * Get the LATEST gold prices from sheet (most recent snapshot) + chuỗi lịch sử đã gộp theo ngày.
  * Chỉ trả về dữ liệu đã tổng hợp, không đẩy toàn bộ raw history xuống client.
  */
-export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPrice'): Promise<{ prices: GoldPriceRow[], series: GoldSeries[], heartbeat?: string }> {
+export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPrice'): Promise<{ prices: GoldPriceRow[], series: GoldSeries[], world: GoldWorldPoint[], heartbeat?: string }> {
   const spreadsheetId = process.env.GOOGLE_SHEET_ID;
-  if (!spreadsheetId) return { prices: [], series: [] };
+  if (!spreadsheetId) return { prices: [], series: [], world: [] };
 
   try {
     const auth = getAuthClient();
@@ -392,7 +409,7 @@ export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPri
 
     if (!rows || rows.length === 0) {
       console.log(`[GoogleSheets] No gold price data found in ${sheetName}.`);
-      return { prices: [], series: [], heartbeat };
+      return { prices: [], series: [], world: [], heartbeat };
     }
 
     const allPrices: GoldPriceRow[] = rows.map((row) => ({
@@ -408,12 +425,12 @@ export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPri
     // Snapshot mới nhất = các dòng có cùng mốc thời gian với dòng cuối
     const latestDate = allPrices[allPrices.length - 1].date;
     const latestPrices = allPrices.filter(p => p.date === latestDate);
-    const series = buildSeries(allPrices);
+    const { series, world } = buildSeries(allPrices);
 
-    console.log(`[GoogleSheets] Gold: ${latestPrices.length} dòng mới nhất (${latestDate}), ${allPrices.length} dòng lịch sử (từ row ${startRow}/${filledRows}), ${series.length} chuỗi sản phẩm.`);
-    return { prices: latestPrices, series, heartbeat };
+    console.log(`[GoogleSheets] Gold: ${latestPrices.length} dòng mới nhất (${latestDate}), ${allPrices.length} dòng lịch sử (từ row ${startRow}/${filledRows}), ${series.length} chuỗi sản phẩm, ${world.length} ngày giá thế giới.`);
+    return { prices: latestPrices, series, world, heartbeat };
   } catch (error) {
     console.error(`Error fetching gold prices from ${sheetName}:`, error);
-    return { prices: [], series: [] };
+    return { prices: [], series: [], world: [] };
   }
 }

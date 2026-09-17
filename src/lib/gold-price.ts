@@ -39,6 +39,20 @@ const BTMC_API_URL = `https://api.btmc.vn/api/BTMCAPI/getpricebtmc?key=${BTMC_AP
 const PNJ_API_URL = 'https://edge-api.pnj.io/ecom-frontend/v1/get-gold-price';
 
 /**
+ * Mặt hàng ĐẠI DIỆN của mỗi nhà, dùng cho biểu đồ lịch sử.
+ * Chọn theo tiêu chí: sản phẩm chủ lực + có bề dày dữ liệu nhất trong sheet.
+ * (BTMC lấy vàng miếng VRTL vì NHẪN TRÒN TRƠN mới được thu thập từ 17/9/2026.)
+ */
+export const BRAND_REPRESENTATIVE: Record<string, string> = {
+  SJC: 'VÀNG MIẾNG SJC (Vàng SJC)',
+  BTMC: 'VÀNG MIẾNG VRTL (Vàng Rồng Thăng Long)',
+  PNJ: 'Nhẫn Trơn PNJ 999.9',
+};
+
+/** Thứ tự phân khu hiển thị trên trang */
+export const BRAND_SECTIONS = ['SJC', 'PNJ', 'BTMC'] as const;
+
+/**
  * Phân loại mặt hàng theo tên. Dùng chung cho cả lúc ghi sheet lẫn lúc hiển thị,
  * nên áp dụng được ngược lại cho dữ liệu lịch sử đã lưu (sheet không có cột type).
  */

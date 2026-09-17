@@ -1,27 +1,18 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { GoldPriceRow, GoldSeries } from "@/lib/google-sheets";
-import { GoldType, GOLD_TYPE_LABELS, classifyGoldType } from "@/lib/gold-price";
-import GoldPriceChart from "./GoldPriceChart";
+import { GoldPriceRow, GoldSeries, GoldWorldPoint } from "@/lib/google-sheets";
+import { GOLD_TYPE_LABELS, classifyGoldType, BRAND_REPRESENTATIVE, BRAND_SECTIONS } from "@/lib/gold-price";
+import GoldPriceChart, { ChartSeries } from "./GoldPriceChart";
 
 interface GoldPriceBoardProps {
     prices: GoldPriceRow[];
     series?: GoldSeries[];
+    world?: GoldWorldPoint[];
 }
 
-type TypeFilter = GoldType | "all";
 type RangeKey = 7 | 30 | 90 | 0;
 
-const TYPE_ORDER: GoldType[] = ["nhan", "mieng", "trangsuc", "nguyenlieu", "khac"];
-const BRAND_ORDER = ["SJC", "BTMC", "PNJ", "Nguyên liệu", "Khác"];
-const BRAND_TITLES: Record<string, string> = {
-    SJC: "Vàng miếng SJC",
-    BTMC: "Bảo Tín Minh Châu",
-    PNJ: "PNJ",
-    "Nguyên liệu": "Vàng nguyên liệu",
-    "Khác": "Thương hiệu khác",
-};
 const RANGES: { key: RangeKey; label: string }[] = [
     { key: 7, label: "7 ngày" },
     { key: 30, label: "30 ngày" },
@@ -29,52 +20,90 @@ const RANGES: { key: RangeKey; label: string }[] = [
     { key: 0, label: "Tất cả" },
 ];
 
+const BRAND_TITLES: Record<string, string> = {
+    SJC: "SJC",
+    PNJ: "PNJ",
+    BTMC: "Bảo Tín Minh Châu",
+};
+const BRAND_COLORS: Record<string, ChartSeries["color"]> = {
+    SJC: "buy",
+    PNJ: "sell",
+    BTMC: "third",
+};
+
 const toNumber = (v: string | number) => parseInt(String(v).replace(/\D/g, ""), 10) || 0;
 const fmt = (v: number) => (v > 0 ? v.toLocaleString("en-US") : "—");
 
-export default function GoldPriceBoard({ prices, series = [] }: GoldPriceBoardProps) {
-    const [viewMode, setViewMode] = useState<"current" | "history">("current");
-    const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
-    const [pickedProduct, setPickedProduct] = useState<string>("");
+export default function GoldPriceBoard({ prices, series = [], world = [] }: GoldPriceBoardProps) {
     const [range, setRange] = useState<RangeKey>(30);
+    const [mode, setMode] = useState<"index" | "vnd">("index");
 
-    // Các loại vàng thực sự có trong dữ liệu
-    const availableTypes = useMemo(() => {
-        const present = new Set<GoldType>();
-        prices.forEach(p => present.add(classifyGoldType(p.name)));
-        series.forEach(s => present.add(s.type));
-        return TYPE_ORDER.filter(t => present.has(t));
-    }, [prices, series]);
+    // Trục ngày dùng chung cho mọi chuỗi
+    const allDays = useMemo(() => {
+        const set = new Set<string>();
+        series.forEach(s => s.points.forEach(p => set.add(p.day)));
+        world.forEach(w => set.add(w.day));
+        return Array.from(set);
+    }, [series, world]);
 
-    const filteredPrices = useMemo(
-        () => (typeFilter === "all" ? prices : prices.filter(p => classifyGoldType(p.name) === typeFilter)),
-        [prices, typeFilter]
+    const days = useMemo(
+        () => (range === 0 ? allDays : allDays.slice(-range)),
+        [allDays, range]
     );
 
-    const filteredSeries = useMemo(
-        () => (typeFilter === "all" ? series : series.filter(s => s.type === typeFilter)),
-        [series, typeFilter]
-    );
+    // Mỗi hãng một đường, lấy mặt hàng đại diện; cộng thêm đường giá thế giới
+    const chartSeries = useMemo<ChartSeries[]>(() => {
+        const out: ChartSeries[] = [];
 
-    // Sản phẩm đang xem: giữ lựa chọn của người dùng nếu còn hợp lệ, không thì lấy cái đầu
-    const activeSeries =
-        filteredSeries.find(s => `${s.brand}|${s.name}` === pickedProduct) || filteredSeries[0];
+        for (const brand of BRAND_SECTIONS) {
+            const repName = BRAND_REPRESENTATIVE[brand];
+            const found = series.find(s => s.brand === brand && s.name === repName)
+                || series.find(s => s.brand === brand);
+            if (!found) continue;
+            out.push({
+                key: `${brand}`,
+                label: `${BRAND_TITLES[brand]} — ${found.name}`,
+                color: BRAND_COLORS[brand],
+                unit: "vnd",
+                points: found.points.map(p => ({ day: p.day, value: p.sell > 0 ? p.sell : p.buy })),
+            });
+        }
 
-    const visiblePoints = useMemo(() => {
-        if (!activeSeries) return [];
-        return range === 0 ? activeSeries.points : activeSeries.points.slice(-range);
-    }, [activeSeries, range]);
+        // Giá thế giới chỉ vẽ được cùng trục khi đã quy về chỉ số
+        if (mode === "index" && world.length > 0) {
+            out.push({
+                key: "world",
+                label: "Thế giới (USD/oz)",
+                color: "world",
+                unit: "usd",
+                points: world.map(w => ({ day: w.day, value: w.usd })),
+            });
+        }
 
-    // Bảng chi tiết: mới nhất lên đầu, kèm chênh lệch mua-bán và thay đổi so ngày trước
+        return out;
+    }, [series, world, mode]);
+
+    // Bảng chi tiết: các mặt hàng đại diện, mới nhất lên đầu
     const tableRows = useMemo(() => {
-        return visiblePoints
-            .map((p, i) => {
-                const prev = i > 0 ? visiblePoints[i - 1] : null;
-                const deltaSell = prev && prev.sell > 0 && p.sell > 0 ? p.sell - prev.sell : null;
-                return { ...p, spread: p.sell > 0 && p.buy > 0 ? p.sell - p.buy : 0, deltaSell };
-            })
+        const byDay = new Map<string, Record<string, number>>();
+        days.forEach(d => byDay.set(d, {}));
+
+        chartSeries.filter(s => s.unit === "vnd").forEach(s => {
+            s.points.forEach(p => {
+                const row = byDay.get(p.day);
+                if (row) row[s.key] = p.value;
+            });
+        });
+        world.forEach(w => {
+            const row = byDay.get(w.day);
+            if (row) row.world = w.usd;
+        });
+
+        return days
+            .map(day => ({ day, values: byDay.get(day)! }))
+            .filter(r => Object.keys(r.values).length > 0)
             .reverse();
-    }, [visiblePoints]);
+    }, [days, chartSeries, world]);
 
     if (!prices || prices.length === 0) {
         return (
@@ -94,14 +123,20 @@ export default function GoldPriceBoard({ prices, series = [] }: GoldPriceBoardPr
         ? new Date(parseInt(prices[0].timestamp)).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })
         : prices[0]?.date;
 
-    const renderTable = (data: GoldPriceRow[], title: string) => {
+    const otherPrices = prices.filter(p => !BRAND_SECTIONS.includes(p.brand as typeof BRAND_SECTIONS[number]));
+
+    const renderSection = (title: string, data: GoldPriceRow[], accent: string, subtitle?: string) => {
         if (data.length === 0) return null;
         return (
-            <div className="mb-10" key={title}>
-                <h3 className="text-xl font-bold mb-4 text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                    <span className="w-2 h-6 bg-amber-500 rounded-full inline-block"></span>
-                    {title}
-                </h3>
+            <section className="mb-10" key={title}>
+                <div className="flex items-baseline gap-3 mb-4">
+                    <h3 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                        <span className={`w-2 h-6 rounded-full inline-block ${accent}`}></span>
+                        {title}
+                    </h3>
+                    <span className="text-sm text-zinc-500 dark:text-zinc-400">{data.length} mặt hàng</span>
+                    {subtitle && <span className="text-xs text-zinc-400">{subtitle}</span>}
+                </div>
                 <div className="overflow-x-auto rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm">
                     <table className="w-full text-left text-sm whitespace-nowrap">
                         <thead className="bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400">
@@ -110,31 +145,33 @@ export default function GoldPriceBoard({ prices, series = [] }: GoldPriceBoardPr
                                 <th className="px-6 py-4 font-extrabold uppercase tracking-wider text-xs">Loại</th>
                                 <th className="px-6 py-4 font-extrabold uppercase tracking-wider text-xs text-right">Mua vào (VNĐ)</th>
                                 <th className="px-6 py-4 font-extrabold uppercase tracking-wider text-xs text-right">Bán ra (VNĐ)</th>
+                                <th className="px-6 py-4 font-extrabold uppercase tracking-wider text-xs text-right">Chênh lệch</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
                             {data.map((item, idx) => {
-                                // Fix number parsing issue from formatted strings (like 16.550.000)
                                 const buy = toNumber(item.buyPrice);
                                 const sell = toNumber(item.sellPrice);
-                                const type = classifyGoldType(item.name);
+                                const isRep = BRAND_REPRESENTATIVE[item.brand] === item.name;
                                 return (
                                     <tr key={`${item.name}-${idx}`} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/50 transition-colors group">
-                                        <td className="px-6 py-4 font-bold text-zinc-900 dark:text-zinc-100">{item.name}</td>
+                                        <td className="px-6 py-4 font-bold text-zinc-900 dark:text-zinc-100">
+                                            {item.name}
+                                            {isRep && (
+                                                <span className="ml-2 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-500">
+                                                    trên biểu đồ
+                                                </span>
+                                            )}
+                                        </td>
                                         <td className="px-6 py-4">
                                             <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
-                                                {GOLD_TYPE_LABELS[type]}
+                                                {GOLD_TYPE_LABELS[classifyGoldType(item.name)]}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <span className="font-bold text-zinc-800 dark:text-zinc-200 bg-zinc-100 dark:bg-zinc-800 px-3 py-1 rounded-lg tabular-nums group-hover:bg-zinc-200 dark:group-hover:bg-zinc-700 transition-colors">
-                                                {fmt(buy)}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <span className="font-bold text-amber-700 dark:text-amber-500 bg-amber-50 dark:bg-amber-900/20 px-3 py-1 rounded-lg tabular-nums group-hover:bg-amber-100 dark:group-hover:bg-amber-900/40 transition-colors">
-                                                {fmt(sell)}
-                                            </span>
+                                        <td className="px-6 py-4 text-right font-bold text-zinc-800 dark:text-zinc-200 tabular-nums">{fmt(buy)}</td>
+                                        <td className="px-6 py-4 text-right font-bold text-amber-700 dark:text-amber-500 tabular-nums">{fmt(sell)}</td>
+                                        <td className="px-6 py-4 text-right text-zinc-500 dark:text-zinc-400 tabular-nums">
+                                            {buy > 0 && sell > 0 ? fmt(sell - buy) : "—"}
                                         </td>
                                     </tr>
                                 );
@@ -142,14 +179,14 @@ export default function GoldPriceBoard({ prices, series = [] }: GoldPriceBoardPr
                         </tbody>
                     </table>
                 </div>
-            </div>
+            </section>
         );
     };
 
     return (
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Hero */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 bg-gradient-to-br from-zinc-800 to-zinc-950 dark:from-zinc-900 dark:to-black p-8 rounded-3xl text-zinc-100 shadow-xl shadow-zinc-900/20 relative overflow-hidden border border-zinc-700/50">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 bg-gradient-to-br from-zinc-800 to-zinc-950 dark:from-zinc-900 dark:to-black p-8 rounded-3xl text-zinc-100 shadow-xl shadow-zinc-900/20 relative overflow-hidden border border-zinc-700/50">
                 <div className="absolute top-0 right-0 -mr-10 -mt-10 w-40 h-40 bg-zinc-600 opacity-10 rounded-full blur-2xl"></div>
                 <div className="absolute bottom-0 left-0 -ml-10 -mb-10 w-32 h-32 bg-amber-500 opacity-10 rounded-full blur-xl"></div>
 
@@ -175,152 +212,100 @@ export default function GoldPriceBoard({ prices, series = [] }: GoldPriceBoardPr
                 </div>
             </div>
 
-            {/* Bộ lọc - một hàng, đặt trên toàn bộ nội dung nó chi phối */}
-            <div className="flex flex-wrap items-center gap-3 mb-6">
-                <span className="text-sm font-bold text-zinc-500 dark:text-zinc-400 mr-1">Loại vàng:</span>
-                {(["all", ...availableTypes] as TypeFilter[]).map(t => (
-                    <button
-                        key={t}
-                        onClick={() => setTypeFilter(t)}
-                        className={`px-4 py-2 rounded-xl text-sm font-bold border transition-all duration-200 ${typeFilter === t
-                            ? "bg-amber-500 text-white border-amber-500 shadow-md shadow-amber-500/20"
-                            : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:border-amber-500"
-                            }`}
-                    >
-                        {t === "all" ? "Tất cả" : GOLD_TYPE_LABELS[t]}
-                    </button>
-                ))}
-            </div>
-
-            {/* Toggle View Mode */}
-            <div className="flex justify-center mb-8">
-                <div className="bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-xl flex items-center border border-zinc-200 dark:border-zinc-700/50 shadow-inner">
-                    {(["current", "history"] as const).map(mode => (
-                        <button
-                            key={mode}
-                            onClick={() => setViewMode(mode)}
-                            className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all duration-300 ${viewMode === mode
-                                ? "bg-white dark:bg-zinc-700 text-amber-600 dark:text-amber-500 shadow-sm"
-                                : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-                                }`}
-                        >
-                            {mode === "current" ? "Bảng giá hiện tại" : "Biến động lịch sử"}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            {viewMode === "current" ? (
-                <div className="space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    {filteredPrices.length === 0 ? (
-                        <p className="text-zinc-500 py-12 text-center bg-zinc-50 dark:bg-zinc-800/30 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-700">
-                            Không có mặt hàng nào thuộc loại này.
+            {/* ===== Biến động lịch sử ===== */}
+            <section className="mb-12">
+                <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
+                    <div>
+                        <h3 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Biến động lịch sử</h3>
+                        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                            Giá bán của mặt hàng tiêu biểu mỗi nhà, so với giá thế giới
                         </p>
-                    ) : (
-                        BRAND_ORDER.map(brand =>
-                            renderTable(filteredPrices.filter(p => p.brand === brand), BRAND_TITLES[brand])
-                        )
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-xl border border-zinc-200 dark:border-zinc-700/50">
+                            {(["index", "vnd"] as const).map(m => (
+                                <button
+                                    key={m}
+                                    onClick={() => setMode(m)}
+                                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${mode === m
+                                        ? "bg-white dark:bg-zinc-700 text-amber-600 dark:text-amber-500 shadow-sm"
+                                        : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                                        }`}
+                                >
+                                    {m === "index" ? "Chỉ số + Thế giới" : "VNĐ"}
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-xl border border-zinc-200 dark:border-zinc-700/50">
+                            {RANGES.map(r => (
+                                <button
+                                    key={r.key}
+                                    onClick={() => setRange(r.key)}
+                                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${range === r.key
+                                        ? "bg-white dark:bg-zinc-700 text-amber-600 dark:text-amber-500 shadow-sm"
+                                        : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                                        }`}
+                                >
+                                    {r.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm">
+                    {mode === "index" && (
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-5 bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-4 py-2.5">
+                            Giá thế giới tính bằng <strong>USD/oz</strong>, giá trong nước bằng <strong>VNĐ/lượng</strong> —
+                            chênh nhau hàng nghìn lần nên không dùng chung một trục được. Ở chế độ này mọi đường được quy về
+                            <strong> chỉ số 100 tại ngày đầu</strong>, nên đọc được ai tăng/giảm nhanh hơn. Di chuột để xem giá thật.
+                        </p>
                     )}
+                    <GoldPriceChart series={chartSeries} days={days} mode={mode} />
                 </div>
-            ) : (
-                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    {!activeSeries || activeSeries.points.length === 0 ? (
-                        <p className="text-zinc-500 py-12 text-center bg-zinc-50 dark:bg-zinc-800/30 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-700">
-                            Chưa có đủ dữ liệu lịch sử cho loại vàng này.
-                        </p>
-                    ) : (
-                        <>
-                            {/* Bộ lọc của khu vực lịch sử */}
-                            <div className="flex flex-wrap items-center gap-4">
-                                <label className="flex items-center gap-2 text-sm font-bold text-zinc-500 dark:text-zinc-400">
-                                    Sản phẩm:
-                                    <select
-                                        value={`${activeSeries.brand}|${activeSeries.name}`}
-                                        onChange={e => setPickedProduct(e.target.value)}
-                                        className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 font-bold text-sm max-w-[22rem] focus:outline-none focus:ring-2 focus:ring-amber-500"
-                                    >
-                                        {filteredSeries.map(s => (
-                                            <option key={`${s.brand}|${s.name}`} value={`${s.brand}|${s.name}`}>
-                                                [{s.brand}] {s.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </label>
 
-                                <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-xl border border-zinc-200 dark:border-zinc-700/50">
-                                    {RANGES.map(r => (
-                                        <button
-                                            key={r.key}
-                                            onClick={() => setRange(r.key)}
-                                            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${range === r.key
-                                                ? "bg-white dark:bg-zinc-700 text-amber-600 dark:text-amber-500 shadow-sm"
-                                                : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-                                                }`}
-                                        >
-                                            {r.label}
-                                        </button>
+                {/* Bảng số - bản song sinh của biểu đồ */}
+                <div className="mt-6 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm">
+                    <h4 className="text-lg font-bold mb-6 text-zinc-900 dark:text-zinc-100">Chi tiết theo ngày (giá bán)</h4>
+                    <div className="overflow-x-auto">
+                        <table className="w-full min-w-[640px] text-left text-sm whitespace-nowrap">
+                            <thead className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400">
+                                <tr className="text-xs uppercase tracking-wider font-extrabold">
+                                    <th className="px-4 py-3">Ngày</th>
+                                    {BRAND_SECTIONS.map(b => (
+                                        <th key={b} className="px-4 py-3 text-right">{BRAND_TITLES[b]} (VNĐ)</th>
                                     ))}
-                                </div>
-                            </div>
-
-                            {/* Biểu đồ */}
-                            <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm">
-                                <h3 className="text-xl font-bold mb-1 text-zinc-900 dark:text-zinc-100">
-                                    {activeSeries.name}
-                                </h3>
-                                <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">
-                                    {activeSeries.brand} · {GOLD_TYPE_LABELS[activeSeries.type]} · {visiblePoints.length} ngày có dữ liệu
-                                </p>
-                                <GoldPriceChart points={visiblePoints} productName={activeSeries.name} />
-                            </div>
-
-                            {/* Bảng chi tiết phía dưới - bản song sinh của biểu đồ */}
-                            <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm">
-                                <h3 className="text-lg font-bold mb-6 text-zinc-900 dark:text-zinc-100">Chi tiết theo ngày</h3>
-                                <div className="overflow-x-auto">
-                                    <table className="w-full min-w-[640px] text-left text-sm whitespace-nowrap">
-                                        <thead className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400">
-                                            <tr className="text-xs uppercase tracking-wider font-extrabold">
-                                                <th className="px-4 py-3">Ngày</th>
-                                                <th className="px-4 py-3 text-right">Mua vào (VNĐ)</th>
-                                                <th className="px-4 py-3 text-right">Bán ra (VNĐ)</th>
-                                                <th className="px-4 py-3 text-right">Chênh lệch</th>
-                                                <th className="px-4 py-3 text-right">So ngày trước</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
-                                            {tableRows.map(row => (
-                                                <tr key={row.day} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/50 transition-colors">
-                                                    <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100 tabular-nums">{row.day}</td>
-                                                    <td className="px-4 py-3 text-right font-semibold text-zinc-800 dark:text-zinc-200 tabular-nums">{fmt(row.buy)}</td>
-                                                    <td className="px-4 py-3 text-right font-semibold text-amber-600 dark:text-amber-500 tabular-nums">{fmt(row.sell)}</td>
-                                                    <td className="px-4 py-3 text-right text-zinc-500 dark:text-zinc-400 tabular-nums">{fmt(row.spread)}</td>
-                                                    <td className="px-4 py-3 text-right tabular-nums font-semibold">
-                                                        {row.deltaSell === null ? (
-                                                            <span className="text-zinc-400">—</span>
-                                                        ) : row.deltaSell === 0 ? (
-                                                            <span className="text-zinc-500">0</span>
-                                                        ) : (
-                                                            <span className={row.deltaSell > 0 ? "text-emerald-600 dark:text-emerald-500" : "text-red-600 dark:text-red-500"}>
-                                                                {row.deltaSell > 0 ? "▲ +" : "▼ "}
-                                                                {row.deltaSell.toLocaleString("en-US")}
-                                                            </span>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                                <p className="mt-6 text-sm text-zinc-500 flex items-center justify-center gap-2">
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                    Mỗi ngày lấy bản ghi mới nhất. Dữ liệu lưu trữ tự động qua Google Sheets.
-                                </p>
-                            </div>
-                        </>
-                    )}
+                                    <th className="px-4 py-3 text-right">Thế giới (USD/oz)</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
+                                {tableRows.map(row => (
+                                    <tr key={row.day} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/50 transition-colors">
+                                        <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100 tabular-nums">{row.day}</td>
+                                        {BRAND_SECTIONS.map(b => (
+                                            <td key={b} className="px-4 py-3 text-right font-semibold text-zinc-800 dark:text-zinc-200 tabular-nums">
+                                                {fmt(row.values[b] || 0)}
+                                            </td>
+                                        ))}
+                                        <td className="px-4 py-3 text-right font-semibold text-amber-600 dark:text-amber-500 tabular-nums">
+                                            {row.values.world ? `$${row.values.world.toLocaleString("en-US")}` : "—"}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-            )}
+            </section>
+
+            {/* ===== Bảng giá hiện tại, phân khu theo nhà ===== */}
+            <h3 className="text-2xl font-black text-zinc-900 dark:text-zinc-100 mb-6">Bảng giá hiện tại</h3>
+            {renderSection("SJC", prices.filter(p => p.brand === "SJC"), "bg-[#2a78d6]")}
+            {renderSection("PNJ", prices.filter(p => p.brand === "PNJ"), "bg-[#eb6834]")}
+            {renderSection("Bảo Tín Minh Châu", prices.filter(p => p.brand === "BTMC"), "bg-[#1baf7a]")}
+            {renderSection("Khác", otherPrices, "bg-zinc-400", "nguyên liệu, đối tác")}
         </div>
     );
 }

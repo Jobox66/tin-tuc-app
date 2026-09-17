@@ -1,6 +1,6 @@
 "use client";
 
-import { NewsItem, GoldPriceRow, GoldSeries } from "@/lib/google-sheets";
+import { NewsItem, GoldPriceRow, GoldSeries, GoldWorldPoint } from "@/lib/google-sheets";
 import { useState, useTransition, useMemo } from "react";
 import { updateArticleStatus } from "@/app/actions";
 import GoldPriceBoard from "./GoldPriceBoard";
@@ -52,6 +52,7 @@ interface NewsFeedProps {
     initialFinance: NewsItem[];
     initialGoldPrices: GoldPriceRow[];
     initialGoldSeries?: GoldSeries[];
+    initialGoldWorld?: GoldWorldPoint[];
 }
 
 export default function NewsFeed({
@@ -59,6 +60,7 @@ export default function NewsFeed({
     initialFinance,
     initialGoldPrices,
     initialGoldSeries = [],
+    initialGoldWorld = [],
 }: NewsFeedProps) {
     const [activeTab, setActiveTab] = useState<TabKey>(
         "general"
@@ -207,7 +209,7 @@ export default function NewsFeed({
             </div>
 
             {activeTab === "gold" ? (
-                <GoldPriceBoard prices={initialGoldPrices} series={initialGoldSeries} />
+                <GoldPriceBoard prices={initialGoldPrices} series={initialGoldSeries} world={initialGoldWorld} />
             ) : news.length === 0 ? (
                 <div className="rounded-2xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 p-20 text-center bg-white/50 dark:bg-zinc-900/50">
                     <div className="w-16 h-16 bg-zinc-100 dark:bg-zinc-800 rounded-full flex items-center justify-center mx-auto mb-4 text-zinc-400">

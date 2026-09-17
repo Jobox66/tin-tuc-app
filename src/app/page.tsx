@@ -82,6 +82,7 @@ export default async function Home() {
           initialFinance={sortedFinance}
           initialGoldPrices={goldRes.prices}
           initialGoldSeries={goldRes.series}
+          initialGoldWorld={goldRes.world}
         />
       </main>
 

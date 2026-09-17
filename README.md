@@ -68,11 +68,25 @@ Phân loại mặt hàng (`classifyGoldType`) suy ra từ tên sản phẩm nên
 ngược lại cho cả dữ liệu cũ: `Vàng nhẫn` · `Vàng miếng` · `Trang sức` · `Nguyên liệu` · `Khác`.
 
 ### Tab Giá Vàng trên giao diện
-- **Lọc theo loại vàng** — có riêng mục *Vàng nhẫn*
-- **Bảng giá hiện tại** — nhóm theo thương hiệu SJC / BTMC / PNJ
-- **Biến động lịch sử** — line chart giá mua & bán theo ngày (chọn sản phẩm, khoảng
-  7 / 30 / 90 ngày hoặc tất cả, có crosshair + tooltip) kèm **bảng chi tiết từng ngày**
-  bên dưới với chênh lệch mua-bán và thay đổi so ngày trước
+Một trang duy nhất, không còn chia tab con:
+
+1. **Biến động lịch sử** — line chart 3 nhà (mặt hàng tiêu biểu) + **giá vàng thế giới**,
+   kèm bảng số theo ngày bên dưới
+2. **Bảng giá hiện tại** — phân khu `SJC` · `PNJ` · `Bảo Tín Minh Châu` · `Khác`
+
+Mặt hàng đại diện trên biểu đồ (sửa ở `BRAND_REPRESENTATIVE` trong `gold-price.ts`):
+
+| Nhà | Mặt hàng đại diện |
+|-----|-------------------|
+| SJC | `VÀNG MIẾNG SJC` |
+| BTMC | `VÀNG MIẾNG VRTL` |
+| PNJ | `Nhẫn Trơn PNJ 999.9` |
+
+> **Vì sao biểu đồ mặc định là chỉ số, không phải VNĐ?** Giá thế giới là USD/oz (~4.300)
+> còn giá trong nước là VNĐ/lượng (~14.270.000) — chênh hàng nghìn lần. Dùng hai trục y
+> sẽ bịa ra tương quan không có thật, nên mọi đường được quy về **chỉ số 100 tại ngày đầu**
+> trên một trục duy nhất. Tooltip và bảng bên dưới vẫn hiện giá thật. Nút `VNĐ` chuyển sang
+> giá tuyệt đối (khi đó đường thế giới bị ẩn vì khác đơn vị).
 
 > Lịch sử được gộp theo ngày ở phía server (mỗi ngày lấy bản ghi mới nhất), chỉ đẩy
 > chuỗi đã tổng hợp xuống client thay vì toàn bộ dòng thô.
