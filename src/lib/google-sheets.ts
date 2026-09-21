@@ -98,7 +98,7 @@ async function ensureRowCapacity(
   spreadsheetId: string,
   sheetName: string,
   neededRows: number
-): Promise<void> {
+): Promise<number> {
   const meta = await sheets.spreadsheets.get({
     spreadsheetId,
     fields: 'sheets.properties(sheetId,title,gridProperties/rowCount)',
@@ -107,11 +107,11 @@ async function ensureRowCapacity(
   const target = meta.data.sheets?.find(sh => sh.properties?.title === sheetName);
   if (!target?.properties) {
     console.warn(`[GoogleSheets] Khong tim thay sheet ${sheetName} de kiem tra so dong.`);
-    return;
+    return 0;
   }
 
   const current = target.properties.gridProperties?.rowCount || 0;
-  if (current >= neededRows) return;
+  if (current >= neededRows) return current;
 
   console.log(`[GoogleSheets] ${sheetName}: nới lưới ${current} -> ${neededRows} dòng.`);
   await sheets.spreadsheets.batchUpdate({
@@ -128,6 +128,8 @@ async function ensureRowCapacity(
       }],
     },
   });
+
+  return neededRows;
 }
 
 export async function saveNewsToSheets(newsItems: NewsItem[], sheetName: string = 'Sheet1'): Promise<void> {
@@ -152,8 +154,12 @@ export async function saveNewsToSheets(newsItems: NewsItem[], sheetName: string 
 
     // 2. Ghi dữ liệu mới TRƯỚC. Nếu clear trước rồi update sau, một lỗi mạng
     // giữa hai bước sẽ để lại sheet trống hoàn toàn.
+    let rowCapacity = 0;
     if (values.length > 0) {
-      await ensureRowCapacity(sheets, spreadsheetId, sheetName, values.length + 1);
+      // +2 chu khong phai +1: dong ngay sau vung du lieu phai ton tai thi
+      // pham vi clear o buoc 3 moi hop le (neu khong se bao "exceeds grid limits",
+      // lam vang luon buoc cap nhat heartbeat ben duoi).
+      rowCapacity = await ensureRowCapacity(sheets, spreadsheetId, sheetName, values.length + 2);
 
       // Ghi theo lô - vài nghìn dòng tóm tắt trong 1 request dễ vượt giới hạn
       // kích thước payload của Sheets API.
@@ -176,10 +182,13 @@ export async function saveNewsToSheets(newsItems: NewsItem[], sheetName: string 
     }
 
     // 3. Xoá phần dư của lần ghi trước (nếu danh sách mới ngắn hơn)
-    await sheets.spreadsheets.values.clear({
-      spreadsheetId,
-      range: `${sheetName}!A${values.length + 2}:H`,
-    });
+    const firstStaleRow = values.length + 2;
+    if (rowCapacity === 0 || firstStaleRow <= rowCapacity) {
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId,
+        range: `${sheetName}!A${firstStaleRow}:H`,
+      });
+    }
 
     // 4. Update Heartbeat (Cell Z1) to track when the JOBS actually run
     try {

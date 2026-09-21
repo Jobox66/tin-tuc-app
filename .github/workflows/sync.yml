@@ -1,19 +1,28 @@
 name: Tintuc Sync
 
 on:
+  # DU PHONG. GitHub hoan cron cua repo public rat nang: do thuc te 17-18/9
+  # voi */30 la 141-303 phut/lan. Dat */10 de tang co hoi chay, nhung KHONG
+  # trong cho lich nay giu dung nhip.
   schedule:
-    # Run every 30 minutes
-    - cron: '*/30 * * * *'
-  workflow_dispatch: # Allow manual trigger
+    - cron: '*/10 * * * *'
 
-# Prevent overlapping sync runs - cancel old job when new one starts
+  # NGUON KICH HOAT CHINH. Dich vu cron ben ngoai goi API dispatches theo dung
+  # nhip mong muon - GitHub khong hoan dispatch thu cong.
+  # Xem muc "Kich hoat sync dung nhip" trong README + scripts/trigger-sync.sh
+  workflow_dispatch:
+
+# Khong huy run dang chay: mot luot sync chi ~2 phut, con bi huy giua chung
+# thi sheet co the dang ghi do. Run moi se xep hang cho luot truoc xong.
 concurrency:
   group: news-sync
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    # Chan run treo lam nghen hang doi
+    timeout-minutes: 20
 
     steps:
       - name: Checkout code

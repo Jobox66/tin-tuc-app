@@ -229,6 +229,84 @@ File: `.github/workflows/sync.yml`
 | Ghi trước - xoá sau | ✅ | Lỗi giữa chừng không để lại sheet trống |
 
 
+## ⏱️ Kích hoạt sync đúng nhịp (bộ kích hoạt ngoài)
+
+**Vì sao cần:** GitHub hoãn cron của repo public rất nặng. Đo thực tế trên chính repo này
+với lịch `*/30`:
+
+| Ngày | Khoảng cách thực tế giữa các lượt |
+|------|-----------------------------------|
+| 8/8/2026 | 35 · 50 · 54 · 59 phút |
+| 17–18/9/2026 | 141 · 193 · 244 · **303** phút |
+
+Đặt lịch dày hơn chỉ tăng cơ hội, không ép được. `workflow_dispatch` gọi qua API thì
+**không bị hoãn**, nên lịch `*/10` trong `sync.yml` chỉ đóng vai trò dự phòng.
+
+### Bước 1 — Tạo token
+
+GitHub → *Settings* → *Developer settings* → *Personal access tokens* → **Fine-grained tokens**
+
+- **Repository access:** chỉ chọn `tin-tuc-app`
+- **Permissions:** chỉ bật `Actions` = **Read and write**
+- Không cần bất kỳ quyền nào khác
+
+### Bước 2 — Thử tại máy trước
+
+```bash
+GITHUB_TOKEN=github_pat_xxx ./scripts/trigger-sync.sh
+```
+
+Trả về `OK - da kich hoat sync tren nhanh master.` là dùng được.
+Script báo rõ từng mã lỗi (401 token sai · 403 thiếu quyền · 404 sai repo · 422 sai nhánh).
+
+### Bước 3 — Cắm vào dịch vụ cron
+
+**Cách A — cron-job.org** (miễn phí, nhanh nhất)
+
+| Trường | Giá trị |
+|--------|---------|
+| URL | `https://api.github.com/repos/Jobox66/tin-tuc-app/actions/workflows/sync.yml/dispatches` |
+| Method | `POST` |
+| Schedule | mỗi 10 phút (hoặc tuỳ ý, tối thiểu nên ≥ 5 phút) |
+| Header | `Authorization: Bearer <PAT>` |
+| Header | `Accept: application/vnd.github+json` |
+| Body | `{"ref":"master"}` |
+
+Thành công = HTTP **204** (không có nội dung trả về).
+
+**Cách B — Google Apps Script** (không cần đăng ký dịch vụ thứ ba, và anh đã dùng Google Sheets)
+
+Mở Apps Script từ chính spreadsheet, dán đoạn dưới, rồi đặt *Trigger* kiểu
+**Time-driven → Minutes timer → Every 10 minutes**:
+
+```javascript
+function triggerSync() {
+  const res = UrlFetchApp.fetch(
+    'https://api.github.com/repos/Jobox66/tin-tuc-app/actions/workflows/sync.yml/dispatches',
+    {
+      method: 'post',
+      contentType: 'application/json',
+      headers: {
+        Authorization: 'Bearer ' + PropertiesService.getScriptProperties().getProperty('GH_TOKEN'),
+        Accept: 'application/vnd.github+json',
+      },
+      payload: JSON.stringify({ ref: 'master' }),
+      muteHttpExceptions: true,
+    }
+  );
+  console.log(res.getResponseCode()); // 204 = OK
+}
+```
+
+Lưu token vào *Project Settings* → *Script properties* → khoá `GH_TOKEN`.
+Đừng viết thẳng token vào code.
+
+> **Lưu ý:** `concurrency.cancel-in-progress` để `false`, nên nếu lượt trước chưa xong thì
+> lượt mới xếp hàng chờ chứ không giết ngang — tránh ghi dở sheet. Mỗi lượt ~2 phút nên
+> nhịp 10 phút không bao giờ dồn ứ.
+
+---
+
 ## 📝 License
 
 Private project · Built by DucTN
