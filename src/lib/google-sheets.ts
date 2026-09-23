@@ -353,14 +353,21 @@ export async function saveGoldPricesToSheets(snapshot: GoldPriceSnapshot, sheetN
       });
     }
 
-    // Update Heartbeat
+    // Update Heartbeat + nhat ky loi nguon.
+    // Ghi loi vao sheet vi log cua GitHub Actions can quyen truy cap moi doc duoc,
+    // con sheet thi luc nao cung doc duoc - de chan doan nguon nao hong tren CI.
     try {
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `${sheetName}!Z1`,
+        range: `${sheetName}!Y1:Z1`,
         valueInputOption: 'RAW',
         requestBody: {
-          values: [[fetchTime]],
+          values: [[
+            snapshot.sourceErrors.length > 0
+              ? `${fetchTime} | ${snapshot.sourceErrors.join(' || ')}`
+              : `${fetchTime} | OK (${snapshot.items.length} mặt hàng)`,
+            fetchTime,
+          ]],
         },
       });
     } catch (heartbeatError) {
@@ -425,6 +432,23 @@ function buildSeries(rows: GoldPriceRow[]): { series: GoldSeries[]; world: GoldW
     .slice(-MAX_HISTORY_DAYS);
 
   return { series, world };
+}
+
+/** Doc nhat ky loi nguon gia vang (o Y1) - dung de chan doan su co tren CI */
+export async function getGoldSyncLog(sheetName: string = 'GoldPrice'): Promise<string> {
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+  if (!spreadsheetId) return '';
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: getAuthClient() });
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${sheetName}!Y1`,
+    });
+    return res.data.values?.[0]?.[0] || '(chưa có)';
+  } catch (error) {
+    console.error('Error reading gold sync log:', error);
+    return '';
+  }
 }
 
 /**

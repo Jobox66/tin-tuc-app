@@ -31,7 +31,8 @@ export interface GoldPriceSnapshot {
   items: GoldPriceItem[];
   fetchedAt: string;
   worldPriceUsd: string;
-  usdVnd: number;       // Ty gia USD/VND luc chup snapshot
+  usdVnd: number;         // Ty gia USD/VND luc chup snapshot
+  sourceErrors: string[]; // Nguon nao loi va loi gi - duoc ghi vao sheet de chan doan
 }
 
 // ===== Quy doi gia the gioi ve gia trong nuoc =====
@@ -50,10 +51,19 @@ export function worldToVndPerChi(usdPerOz: number, usdVnd: number): number {
 
 // Key public của BTMC. Cho phép override qua env để không phải sửa code khi BTMC đổi key.
 const BTMC_API_KEY = process.env.BTMC_API_KEY || '3kd8ub1llcg9t45ez6v7';
-const BTMC_API_URL = `https://api.btmc.vn/api/BTMCAPI/getpricebtmc?key=${BTMC_API_KEY}`;
+const BTMC_PATH = `api.btmc.vn/api/BTMCAPI/getpricebtmc?key=${BTMC_API_KEY}`;
+// Endpoint HTTPS cua BTMC khong ket noi duoc tu runner GitHub Actions ("fetch failed"
+// o ca 3 lan thu), trong khi HTTP thi duoc - doi chieu du lieu: lan CI cuoi cung lay
+// duoc BTMC la 17/9 10:42 bang http, ngay sau khi chuyen sang https thi hong hoan toan.
+// Thu HTTPS truoc, that bai moi ha xuong HTTP. Day la API gia cong khai, key cung
+// cong khai, khong co bi mat nao di qua duong truyen.
+const BTMC_API_URL = `https://${BTMC_PATH}`;
+const BTMC_API_URL_INSECURE = `http://${BTMC_PATH}`;
 const PNJ_API_URL = 'https://edge-api.pnj.io/ecom-frontend/v1/get-gold-price';
 const VCB_FX_URL = 'https://www.vietcombank.com.vn/api/exchangerates?date=now';
 const FALLBACK_FX_URL = 'https://open.er-api.com/v6/latest/USD';
+// Gia vang the gioi doc lap. Truoc day chi lay tu BTMC nen BTMC chet la mat luon.
+const WORLD_GOLD_URL = 'https://api.gold-api.com/price/XAU';
 
 // fetch mac dinh cua Node khong gui User-Agent giong trinh duyet; mot so API
 // Viet Nam chan client la. Them UA + retry de bot phu thuoc vao moi truong chay.
@@ -77,7 +87,12 @@ async function fetchJson(url: string, label: string, attempts = 3): Promise<unkn
       }
     }
   }
-  throw new Error(`${label} thất bại sau ${attempts} lần: ${lastError instanceof Error ? lastError.message : lastError}`);
+  // Kem ca `cause`: fetch cua Node chi bao "fetch failed" o tang tren,
+  // nguyen nhan that (ECONNREFUSED / ETIMEDOUT / TLS...) nam trong cause.
+  const detail = lastError instanceof Error
+    ? `${lastError.message}${lastError.cause ? ` (${String(lastError.cause).slice(0, 160)})` : ''}`
+    : String(lastError);
+  throw new Error(`${label} thất bại sau ${attempts} lần: ${detail}`);
 }
 
 /** Ty gia USD/VND - Vietcombank (gia ban ra), du phong open.er-api.com */
@@ -177,11 +192,26 @@ function parseVNDate(dateStr: string): number {
   return new Date(`${year}-${month}-${day}T${hour}:${minute}:00+07:00`).getTime();
 }
 
+/** Giá vàng thế giới USD/oz từ nguồn độc lập với BTMC */
+export async function fetchWorldGoldUsd(): Promise<number> {
+  const data = await fetchJson(WORLD_GOLD_URL, 'World gold API') as { price?: number };
+  const price = Number(data?.price);
+  if (!price || price <= 0) throw new Error('Khong doc duoc gia vang the gioi');
+  return Math.round(price);
+}
+
 /**
  * BTMC: trả về ~1000 dòng gồm cả BẠC. Chỉ dòng vàng mới có karat ("24k").
  */
 async function fetchBtmcPrices(): Promise<{ items: GoldPriceItem[]; worldPrice: string }> {
-  const data = await fetchJson(BTMC_API_URL, 'BTMC API') as { DataList?: { Data?: Record<string, string>[] } };
+  let data: { DataList?: { Data?: Record<string, string>[] } };
+  try {
+    data = await fetchJson(BTMC_API_URL, 'BTMC API (https)', 2) as typeof data;
+  } catch (httpsError) {
+    console.warn(`   BTMC HTTPS không kết nối được (${httpsError instanceof Error ? httpsError.message : httpsError}) → thử HTTP...`);
+    data = await fetchJson(BTMC_API_URL_INSECURE, 'BTMC API (http)', 2) as typeof data;
+    console.log('   BTMC: lấy được qua HTTP.');
+  }
   const rawItems = data?.DataList?.Data || [];
   if (rawItems.length === 0) {
     console.warn('⚠️ BTMC API returned no data');
@@ -279,26 +309,49 @@ async function fetchPnjPrices(worldPrice: string): Promise<GoldPriceItem[]> {
 export async function fetchGoldPrices(): Promise<GoldPriceSnapshot> {
   console.log('🥇 Fetching gold prices from BTMC + PNJ...');
 
+  const sourceErrors: string[] = [];
+  const note = (src: string, err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`❌ ${src} fetch failed: ${msg}`);
+    sourceErrors.push(`${src}: ${msg}`);
+  };
+
   const usdVnd = await fetchUsdVndRate();
 
   const btmc = await fetchBtmcPrices().catch(err => {
-    console.error('❌ BTMC fetch failed:', err instanceof Error ? err.message : err);
+    note('BTMC', err);
     return { items: [] as GoldPriceItem[], worldPrice: '0' };
   });
 
   const pnj = await fetchPnjPrices(btmc.worldPrice).catch(err => {
-    console.error('❌ PNJ fetch failed:', err instanceof Error ? err.message : err);
+    note('PNJ', err);
     return [] as GoldPriceItem[];
   });
+
+  // Gia the gioi uu tien nguon doc lap; BTMC chi la du phong
+  let worldPrice = btmc.worldPrice;
+  try {
+    worldPrice = String(await fetchWorldGoldUsd());
+  } catch (err) {
+    note('WorldGold', err);
+    if (worldPrice === '0') console.warn('⚠️ Không có giá thế giới từ cả hai nguồn');
+  }
+  if (worldPrice !== btmc.worldPrice) {
+    btmc.items.forEach(i => { i.worldPrice = worldPrice; });
+  }
+  pnj.forEach(i => { i.worldPrice = worldPrice; });
 
   // Mot nguon im lang van la su co. Truoc day BTMC chet tu 19/9 ma khong ai
   // biet vi PNJ van tra du lieu nen tong so item > 0.
   const dead = [
     btmc.items.length === 0 ? 'BTMC' : null,
     pnj.length === 0 ? 'PNJ' : null,
-  ].filter(Boolean);
+  ].filter(Boolean) as string[];
   if (dead.length > 0) {
     console.error(`❌ NGUỒN GIÁ VÀNG KHÔNG TRẢ DỮ LIỆU: ${dead.join(', ')}`);
+    dead.forEach(d => {
+      if (!sourceErrors.some(e => e.startsWith(d))) sourceErrors.push(`${d}: trả về 0 mặt hàng`);
+    });
   }
 
   const items = [...btmc.items, ...pnj];
@@ -307,19 +360,20 @@ export async function fetchGoldPrices(): Promise<GoldPriceSnapshot> {
     return acc;
   }, {});
 
-  console.log(`🥇 BTMC: ${btmc.items.length} | PNJ: ${pnj.length} | tổng ${items.length} mặt hàng. World: $${btmc.worldPrice}/oz`);
+  console.log(`🥇 BTMC: ${btmc.items.length} | PNJ: ${pnj.length} | tổng ${items.length} mặt hàng. World: $${worldPrice}/oz`);
   console.log(`🥇 Theo loại: ${Object.entries(byType).map(([k, v]) => `${k}=${v}`).join(', ')}`);
 
-  if (btmc.worldPrice !== '0') {
-    const vnd = worldToVndPerChi(parseFloat(btmc.worldPrice), usdVnd);
-    console.log(`🌍 Giá thế giới $${btmc.worldPrice}/oz ≈ ${vnd.toLocaleString('en-US')} VNĐ/chỉ`);
+  if (worldPrice !== '0') {
+    const vnd = worldToVndPerChi(parseFloat(worldPrice), usdVnd);
+    console.log(`🌍 Giá thế giới $${worldPrice}/oz ≈ ${vnd.toLocaleString('en-US')} VNĐ/chỉ`);
   }
 
   return {
     items,
     fetchedAt: new Date().toISOString(),
-    worldPriceUsd: btmc.worldPrice,
+    worldPriceUsd: worldPrice,
     usdVnd,
+    sourceErrors,
   };
 }
 
