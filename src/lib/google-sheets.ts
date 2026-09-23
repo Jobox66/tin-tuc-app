@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { GoldPriceSnapshot, GoldType, classifyGoldType, worldToVndPerChi } from './gold-price';
+import { GoldPriceSnapshot, GoldType, classifyGoldType, worldToVndPerChi, dayToTimestamp, BRAND_REPRESENTATIVE, BRAND_SECTIONS } from './gold-price';
 export { dayToTimestamp } from './gold-price';
 
 export interface NewsItem {
@@ -263,6 +263,17 @@ export interface GoldWorldPoint {
   usdVnd: number;   // Ty gia da dung
 }
 
+/** Một lần lấy dữ liệu (snapshot) - dùng cho bảng biến động trong ngày */
+export interface GoldIntradaySnapshot {
+  day: string;        // "23/9/2026"
+  time: string;       // "08:28:07"
+  ts: number;         // để sắp xếp
+  itemCount: number;  // số mặt hàng lấy được lần đó - ít hơn bình thường = có nguồn lỗi
+  brands: Record<string, { buy: number; sell: number }>;
+  worldUsd: number;
+  worldVnd: number;
+}
+
 /** Chuỗi lịch sử của một sản phẩm, đã gộp theo ngày */
 export interface GoldSeries {
   name: string;
@@ -276,6 +287,9 @@ export interface GoldSeries {
 const MAX_HISTORY_ROWS = 40000;
 // Số ngày tối đa đưa lên biểu đồ
 const MAX_HISTORY_DAYS = 90;
+// Số ngày đưa vào bảng "từng lần trong ngày". Mỗi ngày có thể có tới ~144 lần
+// lấy nếu chạy 10 phút/lần, nên phải chặn để payload gửi xuống client không phình.
+const MAX_INTRADAY_DAYS = 7;
 
 /**
  * Cột date được ghi bằng toLocaleString('vi-VN') -> "HH:MM:SS D/M/YYYY"
@@ -285,6 +299,18 @@ export function extractDay(date: string): string {
   return date.split(' ').find(part => part.includes('/')) || date;
 }
 
+
+/** "08:28:07 23/9/2026" -> "08:28:07" */
+export function extractTime(date: string): string {
+  return date.split(' ').find(part => part.includes(':')) || '';
+}
+
+/** "08:28:07 23/9/2026" -> timestamp đầy đủ (dùng để sắp xếp các lần lấy) */
+export function sheetDateToTimestamp(date: string): number {
+  const base = dayToTimestamp(extractDay(date));
+  const [h = 0, m = 0, sec = 0] = extractTime(date).split(':').map(Number);
+  return base + ((h * 3600) + (m * 60) + sec) * 1000;
+}
 
 function toNumber(value: string): number {
   return parseInt(String(value).replace(/\D/g, ''), 10) || 0;
@@ -402,12 +428,62 @@ function buildSeries(rows: GoldPriceRow[]): { series: GoldSeries[]; world: GoldW
 }
 
 /**
+ * Gom cac dong thanh tung LAN LAY (snapshot), chi giu dai dien moi nha.
+ * Khac buildSeries: khong gop theo ngay, giu nguyen moc gio de thay bien dong
+ * giua cac lan quet.
+ */
+function buildIntraday(rows: GoldPriceRow[]): GoldIntradaySnapshot[] {
+  const bySnapshot = new Map<string, GoldIntradaySnapshot>();
+  // Ty gia gan nhat, dung cho dong cu chua co cot H
+  let latestRate = 0;
+  rows.forEach(r => { const v = toNumber(r.usdVnd); if (v > 0) latestRate = v; });
+
+  for (const row of rows) {
+    if (!row.date || !row.name) continue;
+
+    let snap = bySnapshot.get(row.date);
+    if (!snap) {
+      snap = {
+        day: extractDay(row.date),
+        time: extractTime(row.date),
+        ts: sheetDateToTimestamp(row.date),
+        itemCount: 0,
+        brands: {},
+        worldUsd: 0,
+        worldVnd: 0,
+      };
+      bySnapshot.set(row.date, snap);
+    }
+    snap.itemCount++;
+
+    const usd = toNumber(row.worldPrice);
+    if (usd > 0 && snap.worldUsd === 0) {
+      const rate = toNumber(row.usdVnd) || latestRate;
+      snap.worldUsd = usd;
+      snap.worldVnd = worldToVndPerChi(usd, rate);
+    }
+
+    // Chi giu mat hang dai dien cua moi nha
+    const brand = row.brand;
+    if ((BRAND_SECTIONS as readonly string[]).includes(brand) && BRAND_REPRESENTATIVE[brand] === row.name) {
+      snap.brands[brand] = { buy: toNumber(row.buyPrice), sell: toNumber(row.sellPrice) };
+    }
+  }
+
+  const all = Array.from(bySnapshot.values()).sort((a, b) => a.ts - b.ts);
+  // Chi giu N ngay gan nhat
+  const days = Array.from(new Set(all.map(s => s.day))).slice(-MAX_INTRADAY_DAYS);
+  const keep = new Set(days);
+  return all.filter(s => keep.has(s.day));
+}
+
+/**
  * Get the LATEST gold prices from sheet (most recent snapshot) + chuỗi lịch sử đã gộp theo ngày.
  * Chỉ trả về dữ liệu đã tổng hợp, không đẩy toàn bộ raw history xuống client.
  */
-export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPrice'): Promise<{ prices: GoldPriceRow[], series: GoldSeries[], world: GoldWorldPoint[], heartbeat?: string }> {
+export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPrice'): Promise<{ prices: GoldPriceRow[], series: GoldSeries[], world: GoldWorldPoint[], intraday: GoldIntradaySnapshot[], heartbeat?: string }> {
   const spreadsheetId = process.env.GOOGLE_SHEET_ID;
-  if (!spreadsheetId) return { prices: [], series: [], world: [] };
+  if (!spreadsheetId) return { prices: [], series: [], world: [], intraday: [] };
 
   try {
     const auth = getAuthClient();
@@ -433,7 +509,7 @@ export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPri
 
     if (!rows || rows.length === 0) {
       console.log(`[GoogleSheets] No gold price data found in ${sheetName}.`);
-      return { prices: [], series: [], world: [], heartbeat };
+      return { prices: [], series: [], world: [], intraday: [], heartbeat };
     }
 
     const allPrices: GoldPriceRow[] = rows.map((row) => ({
@@ -451,11 +527,12 @@ export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPri
     const latestDate = allPrices[allPrices.length - 1].date;
     const latestPrices = allPrices.filter(p => p.date === latestDate);
     const { series, world } = buildSeries(allPrices);
+    const intraday = buildIntraday(allPrices);
 
-    console.log(`[GoogleSheets] Gold: ${latestPrices.length} dòng mới nhất (${latestDate}), ${allPrices.length} dòng lịch sử (từ row ${startRow}/${filledRows}), ${series.length} chuỗi sản phẩm, ${world.length} ngày giá thế giới.`);
-    return { prices: latestPrices, series, world, heartbeat };
+    console.log(`[GoogleSheets] Gold: ${latestPrices.length} dòng mới nhất (${latestDate}), ${allPrices.length} dòng lịch sử (từ row ${startRow}/${filledRows}), ${series.length} chuỗi sản phẩm, ${world.length} ngày giá thế giới, ${intraday.length} lần lấy.`);
+    return { prices: latestPrices, series, world, intraday, heartbeat };
   } catch (error) {
     console.error(`Error fetching gold prices from ${sheetName}:`, error);
-    return { prices: [], series: [], world: [] };
+    return { prices: [], series: [], world: [], intraday: [] };
   }
 }

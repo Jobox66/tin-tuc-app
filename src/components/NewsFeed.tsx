@@ -1,18 +1,24 @@
 "use client";
 
-import type { NewsItem, GoldPriceRow, GoldSeries, GoldWorldPoint } from "@/lib/google-sheets";
+import type { NewsItem, GoldPriceRow, GoldSeries, GoldWorldPoint, GoldIntradaySnapshot } from "@/lib/google-sheets";
 import { useState, useTransition, useMemo } from "react";
 import { updateArticleStatus } from "@/app/actions";
 import GoldPriceBoard from "./GoldPriceBoard";
+import GoldIntradayTable from "./GoldIntradayTable";
 
 type CategoryKey = "general" | "finance";
-type TabKey = CategoryKey | "gold";
+type TabKey = CategoryKey | "gold" | "goldIntraday";
 
 const TAB_LABELS: Record<TabKey, string> = {
     general: "Tin Chung",
     finance: "Tài Chính",
     gold: "Giá Vàng",
+    goldIntraday: "Vàng Trong Ngày",
 };
+
+/** Tab không phải tin bài - không có phân trang, lọc, lưu/ẩn */
+const NON_NEWS_TABS: TabKey[] = ["gold", "goldIntraday"];
+const isNewsTab = (tab: TabKey) => !NON_NEWS_TABS.includes(tab);
 
 const CATEGORY_SHEETS: Record<CategoryKey, string> = {
     general: "Sheet1",
@@ -53,6 +59,7 @@ interface NewsFeedProps {
     initialGoldPrices: GoldPriceRow[];
     initialGoldSeries?: GoldSeries[];
     initialGoldWorld?: GoldWorldPoint[];
+    initialGoldIntraday?: GoldIntradaySnapshot[];
 }
 
 export default function NewsFeed({
@@ -61,6 +68,7 @@ export default function NewsFeed({
     initialGoldPrices,
     initialGoldSeries = [],
     initialGoldWorld = [],
+    initialGoldIntraday = [],
 }: NewsFeedProps) {
     const [activeTab, setActiveTab] = useState<TabKey>(
         "general"
@@ -79,7 +87,7 @@ export default function NewsFeed({
 
     // Compute filtered news based on active category and showSavedOnly
     const news = useMemo(() => {
-        if (activeTab === "gold") return [];
+        if (!isNewsTab(activeTab)) return [];
         const list = articles[activeTab as CategoryKey];
         if (showSavedOnly) {
             return list.filter(n => n.isSaved);
@@ -112,7 +120,7 @@ export default function NewsFeed({
     };
 
     const handleToggleStatus = async (item: NewsItem, field: 'isHidden' | 'isSaved') => {
-        if (activeTab === "gold") return;
+        if (!isNewsTab(activeTab)) return;
         const category = activeTab as CategoryKey;
         const newValue = !item[field];
         const sheetName = CATEGORY_SHEETS[category];
@@ -161,7 +169,7 @@ export default function NewsFeed({
                         ))}
                     </div>
 
-                    {activeTab !== "gold" && (
+                    {isNewsTab(activeTab) && (
                         <button
                             onClick={() => {
                                 setShowSavedOnly(!showSavedOnly);
@@ -181,7 +189,7 @@ export default function NewsFeed({
                 </div>
 
                 {/* Mini Pagination */}
-                {activeTab !== "gold" && totalPages > 1 && (
+                {isNewsTab(activeTab) && totalPages > 1 && (
                     <div className="flex gap-3 items-center">
                         <button
                             onClick={goToPrevPage}
@@ -210,6 +218,8 @@ export default function NewsFeed({
 
             {activeTab === "gold" ? (
                 <GoldPriceBoard prices={initialGoldPrices} series={initialGoldSeries} world={initialGoldWorld} />
+            ) : activeTab === "goldIntraday" ? (
+                <GoldIntradayTable intraday={initialGoldIntraday} />
             ) : news.length === 0 ? (
                 <div className="rounded-2xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 p-20 text-center bg-white/50 dark:bg-zinc-900/50">
                     <div className="w-16 h-16 bg-zinc-100 dark:bg-zinc-800 rounded-full flex items-center justify-center mx-auto mb-4 text-zinc-400">
@@ -319,7 +329,7 @@ export default function NewsFeed({
             )}
 
             {/* Main Pagination */}
-            {activeTab !== "gold" && totalPages > 1 && (
+            {isNewsTab(activeTab) && totalPages > 1 && (
                 <div className="mt-16 flex items-center justify-center flex-wrap gap-2 md:gap-4">
                     <button
                         onClick={goToPrevPage}

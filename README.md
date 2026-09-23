@@ -74,6 +74,19 @@ Một trang duy nhất, không còn chia tab con:
    kèm bảng số theo ngày bên dưới
 2. **Bảng giá hiện tại** — phân khu `SJC` · `PNJ` · `Bảo Tín Minh Châu` · `Khác`
 
+Tab riêng **Vàng Trong Ngày** hiển thị dạng bảng, mỗi dòng là **một lần hệ thống lấy
+dữ liệu** (không gộp theo ngày như tab Giá Vàng):
+
+- Chọn ngày · chuyển giá mua/giá bán
+- Chênh lệch so với **lần lấy liền trước** hiện ngay dưới mỗi giá
+- 3 thẻ biên độ dao động trong ngày của từng nhà
+- Cột **Số mặt hàng** tô đỏ khi lần lấy đó thiếu so với mức đầy đủ — dấu hiệu có nguồn
+  đang lỗi. So với mức đầy đủ của toàn bộ dữ liệu chứ không phải của riêng ngày đang
+  xem, vì khi một nguồn chết cả ngày thì mốc trong ngày cũng thấp theo và lỗi bị che.
+
+Dữ liệu giới hạn `MAX_INTRADAY_DAYS = 7` ngày gần nhất và chỉ gồm mặt hàng tiêu biểu —
+nếu chạy sync 10 phút/lần thì một ngày có tới ~144 lần lấy, gửi hết xuống client sẽ phình.
+
 Mặt hàng đại diện trên biểu đồ (sửa ở `BRAND_REPRESENTATIVE` trong `gold-price.ts`):
 
 | Nhà | Mặt hàng đại diện |
