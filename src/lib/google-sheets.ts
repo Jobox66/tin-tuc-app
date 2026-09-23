@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { GoldPriceSnapshot, GoldType, classifyGoldType, worldToVndPerChi } from './gold-price';
+export { dayToTimestamp } from './gold-price';
 
 export interface NewsItem {
   title: string;
@@ -283,6 +284,7 @@ const MAX_HISTORY_DAYS = 90;
 export function extractDay(date: string): string {
   return date.split(' ').find(part => part.includes('/')) || date;
 }
+
 
 function toNumber(value: string): number {
   return parseInt(String(value).replace(/\D/g, ''), 10) || 0;

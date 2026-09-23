@@ -121,6 +121,19 @@ export const BRAND_REPRESENTATIVE: Record<string, string> = {
   PNJ: 'Nhẫn Trơn PNJ 999.9',
 };
 
+/**
+ * "23/9/2026" -> timestamp. Chuoi ngay KHONG sap xep duoc bang so sanh chuoi
+ * ("9/6/2026" > "23/9/2026" theo thu tu chu cai), nen moi noi can sap xep
+ * theo thoi gian deu phai di qua ham nay.
+ * Dat o day (khong phai google-sheets.ts) vi component phia client can dung,
+ * ma google-sheets.ts keo theo ca googleapis - khong dong goi cho trinh duyet duoc.
+ */
+export function dayToTimestamp(day: string): number {
+  const [d, m, y] = day.split('/').map(Number);
+  if (!d || !m || !y) return 0;
+  return new Date(y, m - 1, d).getTime();
+}
+
 /** Thứ tự phân khu hiển thị trên trang */
 export const BRAND_SECTIONS = ['SJC', 'PNJ', 'BTMC'] as const;
 

@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { GoldPriceRow, GoldSeries, GoldWorldPoint } from "@/lib/google-sheets";
-import { GOLD_TYPE_LABELS, classifyGoldType, BRAND_REPRESENTATIVE, BRAND_SECTIONS } from "@/lib/gold-price";
+import type { GoldPriceRow, GoldSeries, GoldWorldPoint } from "@/lib/google-sheets";
+import { GOLD_TYPE_LABELS, classifyGoldType, BRAND_REPRESENTATIVE, BRAND_SECTIONS, dayToTimestamp } from "@/lib/gold-price";
 import GoldPriceChart, { ChartSeries } from "./GoldPriceChart";
 
 interface GoldPriceBoardProps {
@@ -37,18 +37,28 @@ const fmt = (v: number) => (v > 0 ? v.toLocaleString("en-US") : "—");
 export default function GoldPriceBoard({ prices, series = [], world = [] }: GoldPriceBoardProps) {
     const [range, setRange] = useState<RangeKey>(30);
 
-    // Trục ngày dùng chung cho mọi chuỗi
+    // Trục ngày dùng chung cho mọi chuỗi.
+    // PHẢI sắp xếp: Set trả về theo thứ tự gặp lần đầu, mà mỗi nguồn có những
+    // ngày đứt quãng khác nhau - PNJ có 19-22/9 còn SJC/BTMC thì không, khiến
+    // 23/9 bị đẩy lên trước 19/9 trên trục.
     const allDays = useMemo(() => {
         const set = new Set<string>();
         series.forEach(s => s.points.forEach(p => set.add(p.day)));
         world.forEach(w => set.add(w.day));
-        return Array.from(set);
+        return Array.from(set).sort((a, b) => dayToTimestamp(a) - dayToTimestamp(b));
     }, [series, world]);
 
-    const days = useMemo(
-        () => (range === 0 ? allDays : allDays.slice(-range)),
-        [allDays, range]
-    );
+    // Lọc theo NGÀY THẬT chứ không phải "N mốc dữ liệu cuối" - dữ liệu có quãng
+    // đứt (1/6 -> 17/9) nên lấy N phần tử cuối sẽ trộn lẫn tháng 5 vào "7 ngày".
+    const days = useMemo(() => {
+        if (range === 0 || allDays.length === 0) return allDays;
+        // Mốc tính từ NGÀY MỚI NHẤT CÓ DỮ LIỆU, không phải Date.now(): gọi hàm
+        // không thuần khiết trong render vừa vi phạm quy tắc React vừa gây lệch
+        // giữa HTML dựng ở server và lần render đầu ở trình duyệt.
+        const latest = dayToTimestamp(allDays[allDays.length - 1]);
+        const cutoff = latest - (range - 1) * 86_400_000;
+        return allDays.filter(d => dayToTimestamp(d) >= cutoff);
+    }, [allDays, range]);
 
     // Mỗi hãng một đường, lấy mặt hàng đại diện; cộng thêm đường giá thế giới
     const chartSeries = useMemo<ChartSeries[]>(() => {

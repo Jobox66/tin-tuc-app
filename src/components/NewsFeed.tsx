@@ -1,6 +1,6 @@
 "use client";
 
-import { NewsItem, GoldPriceRow, GoldSeries, GoldWorldPoint } from "@/lib/google-sheets";
+import type { NewsItem, GoldPriceRow, GoldSeries, GoldWorldPoint } from "@/lib/google-sheets";
 import { useState, useTransition, useMemo } from "react";
 import { updateArticleStatus } from "@/app/actions";
 import GoldPriceBoard from "./GoldPriceBoard";
