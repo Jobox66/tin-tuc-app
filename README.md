@@ -82,15 +82,24 @@ Mặt hàng đại diện trên biểu đồ (sửa ở `BRAND_REPRESENTATIVE` t
 | BTMC | `VÀNG MIẾNG VRTL` |
 | PNJ | `Nhẫn Trơn PNJ 999.9` |
 
-> **Vì sao biểu đồ mặc định là chỉ số, không phải VNĐ?** Giá thế giới là USD/oz (~4.300)
-> còn giá trong nước là VNĐ/lượng (~14.270.000) — chênh hàng nghìn lần. Dùng hai trục y
-> sẽ bịa ra tương quan không có thật, nên mọi đường được quy về **chỉ số 100 tại ngày đầu**
-> trên một trục duy nhất. Tooltip và bảng bên dưới vẫn hiện giá thật. Nút `VNĐ` chuyển sang
-> giá tuyệt đối (khi đó đường thế giới bị ẩn vì khác đơn vị).
+> **Giá thế giới được quy về VNĐ/chỉ** để vẽ chung một trục với giá trong nước:
+> `VNĐ/chỉ = USD/oz × (3,75 / 31,1035) × tỷ giá`. Tỷ giá lấy từ **Vietcombank (giá bán ra)**,
+> dự phòng `open.er-api.com`, và được lưu vào **cột H** của sheet `GoldPrice` ngay tại
+> thời điểm chụp — nên lịch sử quy đổi theo đúng tỷ giá của từng ngày, không dùng
+> tỷ giá hôm nay áp ngược về quá khứ. Đường thế giới vẽ **nét đứt** để phân biệt với
+> giá niêm yết; tooltip và bảng vẫn hiện giá USD gốc.
+>
+> Khoảng cách giữa nét đứt và các đường còn lại chính là mức chênh của vàng trong nước.
+> Đo ngày 23/9/2026: SJC +6,4% · PNJ +6,4% · BTMC +7,2%.
 
-> Lịch sử được gộp theo ngày ở phía server (mỗi ngày lấy bản ghi mới nhất), chỉ đẩy
-> chuỗi đã tổng hợp xuống client thay vì toàn bộ dòng thô.
+### Sheet `GoldPrice`
 
+| Cột | A | B | C | D | E | F | G | H |
+|-----|---|---|---|---|---|---|---|---|
+| | thời điểm | hãng | tên | mua | bán | USD/oz | timestamp | **tỷ giá USD/VND** |
+
+Giá trong nước niêm yết theo **chỉ (3,75g)**, không phải lượng — đã đối chiếu với
+giá thế giới quy đổi để xác nhận.
 
 ## ⚙️ Cách hoạt động
 

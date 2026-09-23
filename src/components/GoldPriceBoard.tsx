@@ -26,9 +26,9 @@ const BRAND_TITLES: Record<string, string> = {
     BTMC: "Bảo Tín Minh Châu",
 };
 const BRAND_COLORS: Record<string, ChartSeries["color"]> = {
-    SJC: "buy",
-    PNJ: "sell",
-    BTMC: "third",
+    SJC: "s1",
+    PNJ: "s2",
+    BTMC: "s3",
 };
 
 const toNumber = (v: string | number) => parseInt(String(v).replace(/\D/g, ""), 10) || 0;
@@ -36,7 +36,6 @@ const fmt = (v: number) => (v > 0 ? v.toLocaleString("en-US") : "—");
 
 export default function GoldPriceBoard({ prices, series = [], world = [] }: GoldPriceBoardProps) {
     const [range, setRange] = useState<RangeKey>(30);
-    const [mode, setMode] = useState<"index" | "vnd">("index");
 
     // Trục ngày dùng chung cho mọi chuỗi
     const allDays = useMemo(() => {
@@ -64,31 +63,31 @@ export default function GoldPriceBoard({ prices, series = [], world = [] }: Gold
                 key: `${brand}`,
                 label: `${BRAND_TITLES[brand]} — ${found.name}`,
                 color: BRAND_COLORS[brand],
-                unit: "vnd",
                 points: found.points.map(p => ({ day: p.day, value: p.sell > 0 ? p.sell : p.buy })),
             });
         }
 
-        // Giá thế giới chỉ vẽ được cùng trục khi đã quy về chỉ số
-        if (mode === "index" && world.length > 0) {
+        // Giá thế giới đã quy về VNĐ/chỉ nên vẽ chung trục được.
+        // Vẽ nét đứt để phân biệt: đây là giá quy đổi, không phải giá niêm yết.
+        if (world.length > 0) {
             out.push({
                 key: "world",
-                label: "Thế giới (USD/oz)",
-                color: "world",
-                unit: "usd",
-                points: world.map(w => ({ day: w.day, value: w.usd })),
+                label: "Thế giới (quy đổi)",
+                color: "s4",
+                dashed: true,
+                points: world.map(w => ({ day: w.day, value: w.vnd, usd: w.usd })),
             });
         }
 
         return out;
-    }, [series, world, mode]);
+    }, [series, world]);
 
     // Bảng chi tiết: các mặt hàng đại diện, mới nhất lên đầu
     const tableRows = useMemo(() => {
         const byDay = new Map<string, Record<string, number>>();
         days.forEach(d => byDay.set(d, {}));
 
-        chartSeries.filter(s => s.unit === "vnd").forEach(s => {
+        chartSeries.filter(s => s.key !== "world").forEach(s => {
             s.points.forEach(p => {
                 const row = byDay.get(p.day);
                 if (row) row[s.key] = p.value;
@@ -96,7 +95,7 @@ export default function GoldPriceBoard({ prices, series = [], world = [] }: Gold
         });
         world.forEach(w => {
             const row = byDay.get(w.day);
-            if (row) row.world = w.usd;
+            if (row) { row.world = w.vnd; row.worldUsd = w.usd; }
         });
 
         return days
@@ -218,26 +217,11 @@ export default function GoldPriceBoard({ prices, series = [], world = [] }: Gold
                     <div>
                         <h3 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Biến động lịch sử</h3>
                         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                            Giá bán của mặt hàng tiêu biểu mỗi nhà, so với giá thế giới
+                            Giá bán mặt hàng tiêu biểu mỗi nhà và giá thế giới quy đổi — cùng đơn vị VNĐ/chỉ
                         </p>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3">
-                        <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-xl border border-zinc-200 dark:border-zinc-700/50">
-                            {(["index", "vnd"] as const).map(m => (
-                                <button
-                                    key={m}
-                                    onClick={() => setMode(m)}
-                                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${mode === m
-                                        ? "bg-white dark:bg-zinc-700 text-amber-600 dark:text-amber-500 shadow-sm"
-                                        : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-                                        }`}
-                                >
-                                    {m === "index" ? "Chỉ số + Thế giới" : "VNĐ"}
-                                </button>
-                            ))}
-                        </div>
-
                         <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-xl border border-zinc-200 dark:border-zinc-700/50">
                             {RANGES.map(r => (
                                 <button
@@ -256,14 +240,13 @@ export default function GoldPriceBoard({ prices, series = [], world = [] }: Gold
                 </div>
 
                 <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 p-8 shadow-sm">
-                    {mode === "index" && (
-                        <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-5 bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-4 py-2.5">
-                            Giá thế giới tính bằng <strong>USD/oz</strong>, giá trong nước bằng <strong>VNĐ/lượng</strong> —
-                            chênh nhau hàng nghìn lần nên không dùng chung một trục được. Ở chế độ này mọi đường được quy về
-                            <strong> chỉ số 100 tại ngày đầu</strong>, nên đọc được ai tăng/giảm nhanh hơn. Di chuột để xem giá thật.
-                        </p>
-                    )}
-                    <GoldPriceChart series={chartSeries} days={days} mode={mode} />
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-5 bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-4 py-2.5">
+                        Đường <strong>Thế giới (nét đứt)</strong> là giá USD/oz quy đổi sang VNĐ/chỉ
+                        theo tỷ giá bán ra Vietcombank của chính ngày đó
+                        (1 chỉ = 3,75g · 1 oz = 31,1035g). Khoảng cách giữa nét đứt và các đường còn lại
+                        chính là mức chênh của vàng trong nước so với thế giới. Di chuột để xem giá USD gốc.
+                    </p>
+                    <GoldPriceChart series={chartSeries} days={days} />
                 </div>
 
                 {/* Bảng số - bản song sinh của biểu đồ */}
@@ -277,7 +260,7 @@ export default function GoldPriceBoard({ prices, series = [], world = [] }: Gold
                                     {BRAND_SECTIONS.map(b => (
                                         <th key={b} className="px-4 py-3 text-right">{BRAND_TITLES[b]} (VNĐ)</th>
                                     ))}
-                                    <th className="px-4 py-3 text-right">Thế giới (USD/oz)</th>
+                                    <th className="px-4 py-3 text-right">Thế giới quy đổi (VNĐ)</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
@@ -290,7 +273,16 @@ export default function GoldPriceBoard({ prices, series = [], world = [] }: Gold
                                             </td>
                                         ))}
                                         <td className="px-4 py-3 text-right font-semibold text-amber-600 dark:text-amber-500 tabular-nums">
-                                            {row.values.world ? `$${row.values.world.toLocaleString("en-US")}` : "—"}
+                                            {row.values.world ? (
+                                                <>
+                                                    {fmt(row.values.world)}
+                                                    {row.values.worldUsd ? (
+                                                        <span className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                                                            ${row.values.worldUsd.toLocaleString("en-US")}/oz
+                                                        </span>
+                                                    ) : null}
+                                                </>
+                                            ) : "—"}
                                         </td>
                                     </tr>
                                 ))}

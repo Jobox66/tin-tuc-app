@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { GoldPriceSnapshot, GoldType, classifyGoldType } from './gold-price';
+import { GoldPriceSnapshot, GoldType, classifyGoldType, worldToVndPerChi } from './gold-price';
 
 export interface NewsItem {
   title: string;
@@ -244,6 +244,7 @@ export interface GoldPriceRow {
   sellPrice: string;
   worldPrice: string;
   timestamp: string;
+  usdVnd: string;      // Cot H - ty gia luc chup. Dong cu khong co -> rong
 }
 
 /** Một điểm trên biểu đồ: giá chốt của một sản phẩm trong một ngày */
@@ -253,10 +254,12 @@ export interface GoldHistoryPoint {
   sell: number;
 }
 
-/** Giá vàng thế giới (USD/oz) chốt theo ngày */
+/** Giá vàng thế giới chốt theo ngày, kèm quy đổi về VNĐ/chỉ */
 export interface GoldWorldPoint {
   day: string;
-  usd: number;
+  usd: number;      // USD/oz - gia goc
+  vnd: number;      // VND/chi - quy doi theo ty gia cua chinh ngay do
+  usdVnd: number;   // Ty gia da dung
 }
 
 /** Chuỗi lịch sử của một sản phẩm, đã gộp theo ngày */
@@ -306,13 +309,14 @@ export async function saveGoldPricesToSheets(snapshot: GoldPriceSnapshot, sheetN
       item.sellPrice.toString(),
       item.worldPrice,
       item.timestamp.toString(),
+      snapshot.usdVnd.toString(),
     ]);
 
     if (values.length > 0) {
       // Append to sheet (keeps history)
       await sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: `${sheetName}!A:G`,
+        range: `${sheetName}!A:H`,
         valueInputOption: 'RAW',
         insertDataOption: 'INSERT_ROWS',
         requestBody: {
@@ -349,13 +353,15 @@ export async function saveGoldPricesToSheets(snapshot: GoldPriceSnapshot, sheetN
 function buildSeries(rows: GoldPriceRow[]): { series: GoldSeries[]; world: GoldWorldPoint[] } {
   const byProduct = new Map<string, { brand: string; name: string; days: Map<string, GoldHistoryPoint> }>();
   // Gia the gioi giong nhau o moi dong trong cung mot snapshot -> gom rieng theo ngay
-  const worldByDay = new Map<string, number>();
+  const worldByDay = new Map<string, { usd: number; usdVnd: number }>();
 
   for (const row of rows) {
     if (!row.name) continue;
 
     const usd = toNumber(row.worldPrice);
-    if (usd > 0) worldByDay.set(extractDay(row.date), usd);
+    if (usd > 0) {
+      worldByDay.set(extractDay(row.date), { usd, usdVnd: toNumber(row.usdVnd) });
+    }
     const key = `${row.brand}|${row.name}`;
     let entry = byProduct.get(key);
     if (!entry) {
@@ -379,8 +385,15 @@ function buildSeries(rows: GoldPriceRow[]): { series: GoldSeries[]; world: GoldW
     }))
     .filter(s => s.points.length > 0);
 
+  // Dong cu (truoc 23/9/2026) chua co cot ty gia -> dung ty gia gan nhat co duoc
+  const latestRate = Array.from(worldByDay.values()).reduce(
+    (acc, v) => (v.usdVnd > 0 ? v.usdVnd : acc), 0);
+
   const world = Array.from(worldByDay.entries())
-    .map(([day, usd]) => ({ day, usd }))
+    .map(([day, v]) => {
+      const rate = v.usdVnd > 0 ? v.usdVnd : latestRate;
+      return { day, usd: v.usd, vnd: worldToVndPerChi(v.usd, rate), usdVnd: rate };
+    })
     .slice(-MAX_HISTORY_DAYS);
 
   return { series, world };
@@ -409,7 +422,7 @@ export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPri
 
     const response = await sheets.spreadsheets.values.batchGet({
       spreadsheetId,
-      ranges: [`${sheetName}!A${startRow}:G`, `${sheetName}!Z1`],
+      ranges: [`${sheetName}!A${startRow}:H`, `${sheetName}!Z1`],
     });
 
     const rows = response.data.valueRanges?.[0].values;
@@ -429,6 +442,7 @@ export async function getLatestGoldPricesFromSheets(sheetName: string = 'GoldPri
       sellPrice: row[4] || '0',
       worldPrice: row[5] || '0',
       timestamp: row[6] || '0',
+      usdVnd: row[7] || '',
     }));
 
     // Snapshot mới nhất = các dòng có cùng mốc thời gian với dòng cuối

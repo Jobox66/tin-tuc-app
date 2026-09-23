@@ -1,6 +1,6 @@
 import { aggregateNews, GENERAL_SOURCES, FINANCE_SOURCES, NewsSource } from '../lib/aggregator';
 import { saveNewsToSheets, getNewsFromSheets, updateHeartbeatOnly, NewsItem, saveGoldPricesToSheets } from '../lib/google-sheets';
-import { fetchGoldPrices } from '../lib/gold-price';
+import { fetchGoldPrices, deadSources } from '../lib/gold-price';
 
 const SYNC_VERSION = "2026-09-17-v5";
 
@@ -121,6 +121,13 @@ async function syncGold() {
         const snapshot = await fetchGoldPrices();
         if (snapshot.items.length > 0) {
             await saveGoldPricesToSheets(snapshot, 'GoldPrice');
+
+            // Mot nguon chet ma nguon kia con song van la su co - phai bao ra,
+            // neu khong thi lich su cua nha do dung im ma khong ai biet.
+            const dead = deadSources(snapshot);
+            if (dead.length > 0) {
+                throw new Error(`Nguồn giá vàng không trả dữ liệu: ${dead.join(', ')} (đã lưu phần lấy được)`);
+            }
             console.log(`🎉 Gold Sync Complete!`);
         } else {
             // Truoc day chi log roi return -> gold chet am tham suot nhieu thang
@@ -173,7 +180,10 @@ async function sync() {
         if (failedCategories.length > 0) {
             console.warn(`⚠️ SYNC PARTIAL - Failed categories: ${failedCategories.join(', ')}`);
             console.log(`${'='.repeat(60)}\n`);
-            // Don't exit(1) for partial failures - other categories succeeded
+            // Báo ĐỎ. Trước đây partial failure vẫn exit 0 nên GitHub báo xanh:
+            // BTMC chết từ 19/9 đến 23/9 qua 30 lượt chạy mà không ai biết.
+            // Dữ liệu của các mục thành công VẪN đã được ghi trước khi thoát.
+            process.exit(1);
         } else {
             console.log(`✅ ALL SYNC COMPLETE at ${new Date().toISOString()}`);
             console.log(`${'='.repeat(60)}\n`);
