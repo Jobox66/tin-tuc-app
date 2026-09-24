@@ -51,7 +51,10 @@ export function worldToVndPerChi(usdPerOz: number, usdVnd: number): number {
 
 // Key public của BTMC. Cho phép override qua env để không phải sửa code khi BTMC đổi key.
 const BTMC_API_KEY = process.env.BTMC_API_KEY || '3kd8ub1llcg9t45ez6v7';
-const BTMC_PATH = `api.btmc.vn/api/BTMCAPI/getpricebtmc?key=${BTMC_API_KEY}`;
+// Host tach rieng de co the ep loi khi test nhanh du phong:
+//   BTMC_API_HOST=khong-ton-tai.invalid npm run sync:local
+const BTMC_HOST = process.env.BTMC_API_HOST || 'api.btmc.vn';
+const BTMC_PATH = `${BTMC_HOST}/api/BTMCAPI/getpricebtmc?key=${BTMC_API_KEY}`;
 // Endpoint HTTPS cua BTMC khong ket noi duoc tu runner GitHub Actions ("fetch failed"
 // o ca 3 lan thu), trong khi HTTP thi duoc - doi chieu du lieu: lan CI cuoi cung lay
 // duoc BTMC la 17/9 10:42 bang http, ngay sau khi chuyen sang https thi hong hoan toan.
@@ -64,6 +67,11 @@ const VCB_FX_URL = 'https://www.vietcombank.com.vn/api/exchangerates?date=now';
 const FALLBACK_FX_URL = 'https://open.er-api.com/v6/latest/USD';
 // Gia vang the gioi doc lap. Truoc day chi lay tu BTMC nen BTMC chet la mat luon.
 const WORLD_GOLD_URL = 'https://api.gold-api.com/price/XAU';
+// Nguon du phong cho BTMC/SJC. api.btmc.vn CHI truy cap duoc tu trong nuoc
+// (timeout ca cong 80 lan 443 tu runner GitHub, ba proxy nuoc ngoai cung khong
+// cham toi, va ca trang btmc.vn cung vay). 24h.com.vn thi goi duoc tu ca hai phia
+// va niem yet lai dung gia cua BTMC - da doi chieu cung thoi diem: lech 0 dong.
+const FALLBACK_24H_URL = 'https://www.24h.com.vn/gia-vang-hom-nay-c425.html';
 
 // fetch mac dinh cua Node khong gui User-Agent giong trinh duyet; mot so API
 // Viet Nam chan client la. Them UA + retry de bot phu thuoc vao moi truong chay.
@@ -192,6 +200,66 @@ function parseVNDate(dateStr: string): number {
   return new Date(`${year}-${month}-${day}T${hour}:${minute}:00+07:00`).getTime();
 }
 
+/**
+ * Doc bang gia tu 24h.com.vn. Gia niem yet bang NGHIN dong/LUONG,
+ * trong khi toan he thong dung VND/CHI -> nhan 100 (1 luong = 10 chi).
+ * Ten san pham giu y het ten ben API BTMC de chuoi lich su khong bi dut doan.
+ */
+export async function fetch24hGoldPrices(): Promise<GoldPriceItem[]> {
+  const res = await fetch(FALLBACK_24H_URL, {
+    headers: { Accept: 'text/html', 'User-Agent': BROWSER_UA },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+  const html = await res.text();
+
+  // Chi lay nhung dong bu dap dung phan mat khi khong goi duoc BTMC
+  // Dung dong "BTMC SJC" chu KHONG phai dong "SJC": dong "SJC" la gia do chinh
+  // cong ty SJC niem yet, con ta can gia BTMC niem yet cho vang mieng SJC - dung
+  // nhu API BTMC van tra ve. Doi chieu cung thoi diem: dong nay lech 0d so voi API,
+  // trong khi dong "SJC" lech 40-60k. Dung nham se lam chuoi lich su nhay giua hai
+  // loai bao gia khac nhau.
+  const WANTED: Record<string, { name: string; brand: string }> = {
+    bao_tin_minh_chau: { name: 'VÀNG MIẾNG SJC (Vàng SJC)', brand: 'SJC' },
+    btmc_vrtl: { name: 'VÀNG MIẾNG VRTL (Vàng Rồng Thăng Long)', brand: 'BTMC' },
+  };
+
+  const updatedAt = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+  const items: GoldPriceItem[] = [];
+
+  for (const [, key, body] of html.matchAll(/<tr[^>]*data-seach="([^"]+)"[^>]*>([\s\S]*?)<\/tr>/g)) {
+    const want = WANTED[key];
+    if (!want) continue;
+
+    const nums = [...body.matchAll(/<span class="fixW">([\d,.]+)<\/span>/g)]
+      .map(m => parseInt(m[1].replace(/\D/g, ''), 10));
+    if (nums.length < 2) continue;
+
+    const buyPrice = nums[0] * 100;
+    const sellPrice = nums[1] * 100;
+    // Chan gia tri vo ly (doi don vi, doi layout...) thay vi ghi bua vao sheet
+    if (buyPrice < 1_000_000 || buyPrice > 100_000_000 || sellPrice < buyPrice) {
+      console.warn(`   24h: bỏ qua ${key} vì giá bất thường (${buyPrice}/${sellPrice})`);
+      continue;
+    }
+
+    items.push({
+      name: want.name,
+      brand: want.brand,
+      type: classifyGoldType(want.name),
+      karat: '24k',
+      purity: '999.9',
+      buyPrice,
+      sellPrice,
+      worldPrice: '0',
+      updatedAt,
+      timestamp: Date.now(),
+    });
+  }
+
+  if (items.length === 0) throw new Error('Khong doc duoc dong gia nao tu 24h.com.vn');
+  return items;
+}
+
 /** Giá vàng thế giới USD/oz từ nguồn độc lập với BTMC */
 export async function fetchWorldGoldUsd(): Promise<number> {
   const data = await fetchJson(WORLD_GOLD_URL, 'World gold API') as { price?: number };
@@ -207,8 +275,7 @@ async function fetchBtmcPrices(): Promise<{ items: GoldPriceItem[]; worldPrice: 
   let data: { DataList?: { Data?: Record<string, string>[] } };
   try {
     data = await fetchJson(BTMC_API_URL, 'BTMC API (https)', 2) as typeof data;
-  } catch (httpsError) {
-    console.warn(`   BTMC HTTPS không kết nối được (${httpsError instanceof Error ? httpsError.message : httpsError}) → thử HTTP...`);
+  } catch {
     data = await fetchJson(BTMC_API_URL_INSECURE, 'BTMC API (http)', 2) as typeof data;
     console.log('   BTMC: lấy được qua HTTP.');
   }
@@ -318,10 +385,22 @@ export async function fetchGoldPrices(): Promise<GoldPriceSnapshot> {
 
   const usdVnd = await fetchUsdVndRate();
 
-  const btmc = await fetchBtmcPrices().catch(err => {
+  let btmc = await fetchBtmcPrices().catch(err => {
     note('BTMC', err);
     return { items: [] as GoldPriceItem[], worldPrice: '0' };
   });
+
+  // BTMC khong goi duoc (thuong la khi chay ngoai Viet Nam) -> lay bu tu 24h.com.vn
+  if (btmc.items.length === 0) {
+    try {
+      const items = await fetch24hGoldPrices();
+      console.log(`   ↪️ Dùng nguồn dự phòng 24h.com.vn: ${items.length} mặt hàng (${items.map(i => i.brand).join(', ')}).`);
+      sourceErrors.push(`BTMC: đã bù bằng 24h.com.vn (${items.length} mặt hàng)`);
+      btmc = { items, worldPrice: '0' };
+    } catch (err) {
+      note('24h.com.vn', err);
+    }
+  }
 
   const pnj = await fetchPnjPrices(btmc.worldPrice).catch(err => {
     note('PNJ', err);
@@ -378,10 +457,33 @@ export async function fetchGoldPrices(): Promise<GoldPriceSnapshot> {
 }
 
 /** Danh sach nguon khong tra du lieu trong snapshot - dung de bao loi o sync */
-export function deadSources(snapshot: GoldPriceSnapshot): string[] {
+/**
+ * Nguon BAT BUOC: thieu la coi nhu luot sync hong, workflow phai bao do.
+ * Nguon TUY CHON: ghi nhan va canh bao, nhung khong lam hong luot chay.
+ *
+ * BTMC nam o nhom tuy chon vi `api.btmc.vn` KHONG ket noi duoc tu runner
+ * GitHub Actions - ConnectTimeoutError o ca cong 80 lan 443, va ba dich vu
+ * proxy nuoc ngoai cung khong cham toi. Trong khi do PNJ, api.gold-api.com
+ * va ca Vietcombank (cung la site Viet Nam) deu goi duoc binh thuong, nen
+ * day la van de rieng cua host do chu khong phai chan dien rong.
+ * De BTMC o nhom bat buoc thi moi luot CI deu do -> mat luon tac dung canh bao.
+ */
+const REQUIRED_SOURCES = ['PNJ'] as const;
+const OPTIONAL_SOURCES = ['BTMC'] as const;
+
+function missingSources(snapshot: GoldPriceSnapshot, list: readonly string[]): string[] {
   const brands = new Set(snapshot.items.map(i => i.brand));
-  const dead: string[] = [];
-  if (!brands.has('BTMC') && !brands.has('SJC')) dead.push('BTMC');
-  if (!brands.has('PNJ')) dead.push('PNJ');
-  return dead;
+  return list.filter(src =>
+    src === 'BTMC' ? !brands.has('BTMC') && !brands.has('SJC') : !brands.has(src)
+  );
+}
+
+/** Nguồn bắt buộc bị thiếu - làm hỏng lượt sync */
+export function deadSources(snapshot: GoldPriceSnapshot): string[] {
+  return missingSources(snapshot, REQUIRED_SOURCES);
+}
+
+/** Nguồn tuỳ chọn bị thiếu - chỉ cảnh báo */
+export function degradedSources(snapshot: GoldPriceSnapshot): string[] {
+  return missingSources(snapshot, OPTIONAL_SOURCES);
 }

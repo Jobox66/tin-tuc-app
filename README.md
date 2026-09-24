@@ -59,10 +59,34 @@ tin-tuc-app/
 | Nguồn | Mặt hàng | Ghi chú |
 |-------|----------|---------|
 | **BTMC** (`api.btmc.vn`) | 10 mặt hàng: vàng miếng SJC, **nhẫn tròn trơn VRTL**, bản vàng Đắc Lộc, đồng xu VRTL, trang sức Rồng Thăng Long, nguyên liệu | API trả ~1000 dòng gồm cả bạc — chỉ dòng có `karat` mới là vàng |
+| **24h.com.vn** *(dự phòng)* | 2 mặt hàng: vàng miếng SJC, vàng miếng VRTL | Chỉ dùng khi không gọi được BTMC |
 | **PNJ** (`edge-api.pnj.io`) | 20 mặt hàng: **nhẫn trơn PNJ 999.9**, vàng miếng SJC, Kim Bảo, Phúc Lộc Tài, nữ trang 8K–24K | Giá niêm yết bằng **nghìn đồng**, đã nhân 1000 trước khi lưu |
 
 Mỗi lần sync ghi nối (append) ~30 dòng vào sheet `GoldPrice`, giữ nguyên lịch sử.
 Một nguồn lỗi không ảnh hưởng nguồn còn lại.
+
+> ### ⚠️ `api.btmc.vn` chỉ truy cập được từ trong nước
+>
+> Từ runner GitHub Actions, host này **timeout ở cả cổng 80 lẫn 443**
+> (`ConnectTimeoutError`). Ba dịch vụ proxy nước ngoài cũng không chạm tới, kể cả
+> trang `btmc.vn`. Trong khi đó PNJ, `api.gold-api.com` và cả Vietcombank (cũng là
+> site Việt Nam) đều gọi bình thường — nên đây là hạn chế riêng của host đó.
+>
+> **Cách xử lý:** khi BTMC không gọi được, sync tự chuyển sang `24h.com.vn` — trang
+> này gọi được từ cả hai phía và niêm yết lại đúng giá BTMC. Đối chiếu cùng thời
+> điểm: **lệch 0 đồng**. Dùng dòng `BTMC SJC` chứ không phải dòng `SJC`, vì dòng
+> `SJC` là giá do chính công ty SJC niêm yết (lệch 40–60k) — dùng nhầm sẽ làm chuỗi
+> lịch sử nhảy giữa hai loại báo giá.
+>
+> Nguồn dự phòng chỉ bù được **vàng miếng SJC và VRTL**. Nhẫn tròn trơn BTMC, trang
+> sức và đồng xu chỉ có khi sync chạy từ trong nước. Vàng nhẫn vẫn còn qua
+> `Nhẫn Trơn PNJ 999.9`.
+>
+> Ép test nhánh dự phòng: `BTMC_API_HOST=khong-ton-tai.invalid npm run sync:local`
+>
+> Nguồn chia hai nhóm: **bắt buộc** (`PNJ`) thiếu là workflow đỏ; **tuỳ chọn**
+> (`BTMC`) thiếu thì cảnh báo và ghi lý do vào ô **Y1** của sheet `GoldPrice`,
+> nhưng không làm đỏ — nếu lượt nào cũng đỏ thì cảnh báo mất tác dụng.
 
 Phân loại mặt hàng (`classifyGoldType`) suy ra từ tên sản phẩm nên áp dụng được
 ngược lại cho cả dữ liệu cũ: `Vàng nhẫn` · `Vàng miếng` · `Trang sức` · `Nguyên liệu` · `Khác`.

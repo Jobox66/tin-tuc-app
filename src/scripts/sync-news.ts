@@ -1,6 +1,6 @@
 import { aggregateNews, GENERAL_SOURCES, FINANCE_SOURCES, NewsSource } from '../lib/aggregator';
 import { saveNewsToSheets, getNewsFromSheets, updateHeartbeatOnly, NewsItem, saveGoldPricesToSheets } from '../lib/google-sheets';
-import { fetchGoldPrices, deadSources } from '../lib/gold-price';
+import { fetchGoldPrices, deadSources, degradedSources } from '../lib/gold-price';
 
 const SYNC_VERSION = "2026-09-17-v5";
 
@@ -122,17 +122,22 @@ async function syncGold() {
         if (snapshot.items.length > 0) {
             await saveGoldPricesToSheets(snapshot, 'GoldPrice');
 
-            // Mot nguon chet ma nguon kia con song van la su co - phai bao ra,
-            // neu khong thi lich su cua nha do dung im ma khong ai biet.
+            // Nguon tuy chon thieu: canh bao that ro nhung khong lam do workflow,
+            // neu khong thi luot nao cung do va canh bao mat tac dung.
+            const degraded = degradedSources(snapshot);
+            if (degraded.length > 0) {
+                console.warn(`⚠️ THIẾU NGUỒN TUỲ CHỌN: ${degraded.join(', ')} - đã lưu ${snapshot.items.length} mặt hàng lấy được. Xem ô Y1 của sheet GoldPrice để biết lý do.`);
+            }
+
+            // Nguon bat buoc thieu thi coi nhu luot sync hong.
             const dead = deadSources(snapshot);
             if (dead.length > 0) {
-                throw new Error(`Nguồn giá vàng không trả dữ liệu: ${dead.join(', ')} (đã lưu phần lấy được)`);
+                throw new Error(`Thiếu nguồn giá vàng bắt buộc: ${dead.join(', ')} (đã lưu phần lấy được)`);
             }
-            console.log(`🎉 Gold Sync Complete!`);
+
+            console.log(`🎉 Gold Sync Complete!${degraded.length > 0 ? ` (thiếu ${degraded.join(', ')})` : ''}`);
         } else {
-            // Truoc day chi log roi return -> gold chet am tham suot nhieu thang
-            // ma workflow van bao "success". Nem loi de no hien trong SYNC PARTIAL.
-            throw new Error('BTMC API tra ve 0 mat hang vang - co the API da doi format du lieu.');
+            throw new Error('Không lấy được mặt hàng vàng nào từ bất kỳ nguồn nào.');
         }
     } catch (e) {
         console.error(`❌ Gold Sync FAILED:`, e);
