@@ -1,6 +1,8 @@
 import { google } from 'googleapis';
 import { GoldPriceSnapshot, GoldType, classifyGoldType, worldToVndPerChi, dayToTimestamp, BRAND_REPRESENTATIVE, BRAND_SECTIONS } from './gold-price';
 export { dayToTimestamp } from './gold-price';
+import { NewsRowRef, SUMMARY_PENDING, planTrim, toDeleteRanges, vnDateTimeToEpoch } from './sync-plan';
+export type { NewsRowRef } from './sync-plan';
 
 export interface NewsItem {
   title: string;
@@ -89,128 +91,179 @@ export async function getNewsFromSheets(sheetName: string = 'Sheet1'): Promise<{
   }
 }
 
-/**
- * Google Sheets KHONG tu noi luoi khi values.update ghi qua so dong hien co
- * (khac voi values.append) - se bao "exceeds grid limits". Ham nay nong so dong
- * len truoc khi ghi. Sheet mac dinh chi co 1000 dong.
- */
-async function ensureRowCapacity(
-  sheets: ReturnType<typeof google.sheets>,
-  spreadsheetId: string,
-  sheetName: string,
-  neededRows: number
-): Promise<number> {
-  const meta = await sheets.spreadsheets.get({
-    spreadsheetId,
-    fields: 'sheets.properties(sheetId,title,gridProperties/rowCount)',
-  });
+// ============= GHI TIN THEO KIEU THEM DONG / SUA O =============
+// Truoc day moi luot doc het 5000 dong, gop trong RAM roi GHI DE ca sheet.
+// Hau qua: ton cong ghi theo ca kho, va moi thao tac Luu/An anh bam TRONG luc
+// sync dang chay deu bi ban ghi cu de len. Gio chi them dong moi o cuoi, sua
+// dung o can sua theo URL, va xoa dong cu bang deleteDimension.
+// Thu tu dong tren sheet KHONG con la moi nhat truoc - trang web tu sap xep
+// theo timestamp nen khong anh huong hien thi.
 
-  const target = meta.data.sheets?.find(sh => sh.properties?.title === sheetName);
-  if (!target?.properties) {
-    console.warn(`[GoogleSheets] Khong tim thay sheet ${sheetName} de kiem tra so dong.`);
-    return 0;
+const NEWS_WRITE_CHUNK = 1000;
+
+function sheetsClient() {
+  return google.sheets({ version: 'v4', auth: getAuthClient() });
+}
+
+function nowVN(): string {
+  return new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+}
+
+/**
+ * Them bai moi vao CUOI sheet, danh dau cot I = PENDING de luot tom tat xu ly sau.
+ * values.append tu noi luoi (khac values.update) nen khong can ensureRowCapacity.
+ */
+export async function appendNewsToSheet(items: NewsItem[], sheetName: string): Promise<void> {
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+  if (!spreadsheetId) return;
+  const sheets = sheetsClient();
+
+  const values = items.map(item => [
+    item.title,
+    item.summary,
+    item.url,
+    item.date,
+    item.thumbnail,
+    item.timestamp.toString(),
+    item.isHidden ? 'TRUE' : 'FALSE',
+    item.isSaved ? 'TRUE' : 'FALSE',
+    SUMMARY_PENDING,
+  ]);
+
+  for (let i = 0; i < values.length; i += NEWS_WRITE_CHUNK) {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `${sheetName}!A:I`,
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: values.slice(i, i + NEWS_WRITE_CHUNK) },
+    });
   }
 
-  const current = target.properties.gridProperties?.rowCount || 0;
-  if (current >= neededRows) return current;
+  // Heartbeat + tieu de cot I trong cung mot lenh. Loi o day khong duoc lam
+  // hong luot ghi vua xong.
+  try {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        valueInputOption: 'RAW',
+        data: [
+          { range: `${sheetName}!Z1`, values: [[nowVN()]] },
+          { range: `${sheetName}!I1`, values: [['summaryStatus']] },
+        ],
+      },
+    });
+  } catch (heartbeatError) {
+    console.error(`[GoogleSheets] WARNING: Heartbeat update failed for ${sheetName}:`, heartbeatError);
+  }
 
-  console.log(`[GoogleSheets] ${sheetName}: nới lưới ${current} -> ${neededRows} dòng.`);
+  console.log(`[GoogleSheets] ${sheetName}: đã thêm ${values.length} bài mới (append).`);
+}
+
+/** Doc cac cot can de lap ke hoach (URL, timestamp, da luu, trang thai tom tat) */
+export async function readNewsRowRefs(sheetName: string): Promise<NewsRowRef[]> {
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+  if (!spreadsheetId) return [];
+
+  const res = await sheetsClient().spreadsheets.values.batchGet({
+    spreadsheetId,
+    ranges: [`${sheetName}!C2:C`, `${sheetName}!F2:F`, `${sheetName}!H2:H`, `${sheetName}!I2:I`],
+    majorDimension: 'COLUMNS',
+  });
+  const col = (i: number): string[] => (res.data.valueRanges?.[i]?.values?.[0] as string[]) || [];
+  const [urls, stamps, saved, status] = [col(0), col(1), col(2), col(3)];
+
+  const refs: NewsRowRef[] = [];
+  for (let i = 0; i < urls.length; i++) {
+    const url = (urls[i] || '').trim();
+    if (!url) continue;
+    refs.push({
+      row: i + 2,
+      url,
+      timestamp: stamps[i] ? parseInt(stamps[i], 10) : 0,
+      isSaved: saved[i] === 'TRUE',
+      status: status[i] || '',
+    });
+  }
+  return refs;
+}
+
+export interface SummaryUpdate {
+  url: string;
+  status: string;
+  summary?: string;
+  thumbnail?: string;
+}
+
+/**
+ * Ghi ket qua tom tat theo URL. Doc lai cot URL NGAY truoc khi ghi de lay so
+ * dong moi nhat - phong truong hop dong da bi dich do mot luot cat tia.
+ * Tra ve so bai da ghi.
+ */
+export async function updateNewsSummaries(sheetName: string, updates: SummaryUpdate[]): Promise<number> {
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+  if (!spreadsheetId || updates.length === 0) return 0;
+  const sheets = sheetsClient();
+
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${sheetName}!C2:C`, majorDimension: 'COLUMNS' });
+  const urls = (res.data.values?.[0] as string[]) || [];
+  const rowByUrl = new Map<string, number>();
+  urls.forEach((u, i) => { if (u) rowByUrl.set(u.trim(), i + 2); });
+
+  const data: { range: string; values: string[][] }[] = [];
+  let written = 0;
+  for (const u of updates) {
+    const row = rowByUrl.get(u.url);
+    if (!row) {
+      console.warn(`[GoogleSheets] ${sheetName}: không còn thấy bài để ghi tóm tắt (đã bị cắt?): ${u.url}`);
+      continue;
+    }
+    if (u.summary) data.push({ range: `${sheetName}!B${row}`, values: [[u.summary]] });
+    if (u.thumbnail) data.push({ range: `${sheetName}!E${row}`, values: [[u.thumbnail]] });
+    data.push({ range: `${sheetName}!I${row}`, values: [[u.status]] });
+    written++;
+  }
+  if (data.length === 0) return 0;
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: { valueInputOption: 'RAW', data },
+  });
+  return written;
+}
+
+/**
+ * Cat sheet ve `maxRows` bai khi vuot `maxRows + slack`. Khong bao gio xoa bai
+ * da Luu. Tra ve so dong da xoa.
+ */
+export async function trimNewsSheet(sheetName: string, maxRows: number, slack: number): Promise<number> {
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+  if (!spreadsheetId) return 0;
+
+  const refs = await readNewsRowRefs(sheetName);
+  const toDelete = planTrim(refs, maxRows, slack);
+  if (toDelete.length === 0) return 0;
+
+  const sheets = sheetsClient();
+  const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties(sheetId,title)' });
+  const sheetId = meta.data.sheets?.find(sh => sh.properties?.title === sheetName)?.properties?.sheetId;
+  if (sheetId === undefined || sheetId === null) {
+    throw new Error(`Không tìm thấy sheet ${sheetName} để cắt bớt`);
+  }
+
+  // toDeleteRanges da xep tu duoi len -> cac lenh xoa trong cung batch khong
+  // lam lech chi so cua nhau
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: {
-      requests: [{
-        updateSheetProperties: {
-          properties: {
-            sheetId: target.properties.sheetId,
-            gridProperties: { rowCount: neededRows },
-          },
-          fields: 'gridProperties.rowCount',
-        },
-      }],
+      requests: toDeleteRanges(toDelete).map(r => ({
+        deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: r.startIndex, endIndex: r.endIndex } },
+      })),
     },
   });
 
-  return neededRows;
-}
-
-export async function saveNewsToSheets(newsItems: NewsItem[], sheetName: string = 'Sheet1'): Promise<void> {
-  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
-  if (!spreadsheetId) return;
-
-  try {
-    const auth = getAuthClient();
-    const sheets = google.sheets({ version: 'v4', auth });
-
-    // 1. Prepare values
-    const values = newsItems.map(item => [
-      item.title,
-      item.summary,
-      item.url,
-      item.date,
-      item.thumbnail,
-      item.timestamp.toString(),
-      item.isHidden ? 'TRUE' : 'FALSE',
-      item.isSaved ? 'TRUE' : 'FALSE',
-    ]);
-
-    // 2. Ghi dữ liệu mới TRƯỚC. Nếu clear trước rồi update sau, một lỗi mạng
-    // giữa hai bước sẽ để lại sheet trống hoàn toàn.
-    let rowCapacity = 0;
-    if (values.length > 0) {
-      // +2 chu khong phai +1: dong ngay sau vung du lieu phai ton tai thi
-      // pham vi clear o buoc 3 moi hop le (neu khong se bao "exceeds grid limits",
-      // lam vang luon buoc cap nhat heartbeat ben duoi).
-      rowCapacity = await ensureRowCapacity(sheets, spreadsheetId, sheetName, values.length + 2);
-
-      // Ghi theo lô - vài nghìn dòng tóm tắt trong 1 request dễ vượt giới hạn
-      // kích thước payload của Sheets API.
-      const CHUNK = 1000;
-      for (let i = 0; i < values.length; i += CHUNK) {
-        const chunk = values.slice(i, i + CHUNK);
-        const startRow = 2 + i;
-        await sheets.spreadsheets.values.update({
-          spreadsheetId,
-          range: `${sheetName}!A${startRow}:H${startRow + chunk.length - 1}`,
-          valueInputOption: 'RAW',
-          requestBody: {
-            values: chunk,
-          },
-        });
-        if (values.length > CHUNK) {
-          console.log(`[GoogleSheets] ${sheetName}: đã ghi ${Math.min(i + CHUNK, values.length)}/${values.length} dòng.`);
-        }
-      }
-    }
-
-    // 3. Xoá phần dư của lần ghi trước (nếu danh sách mới ngắn hơn)
-    const firstStaleRow = values.length + 2;
-    if (rowCapacity === 0 || firstStaleRow <= rowCapacity) {
-      await sheets.spreadsheets.values.clear({
-        spreadsheetId,
-        range: `${sheetName}!A${firstStaleRow}:H`,
-      });
-    }
-
-    // 4. Update Heartbeat (Cell Z1) to track when the JOBS actually run
-    try {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `${sheetName}!Z1`,
-        valueInputOption: 'RAW',
-        requestBody: {
-          values: [[new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })]],
-        },
-      });
-      console.log(`[GoogleSheets] Heartbeat updated for ${sheetName} to cell Z1.`);
-    } catch (heartbeatError) {
-      console.error(`[GoogleSheets] WARNING: Heartbeat update failed for ${sheetName}:`, heartbeatError);
-    }
-
-    console.log(`Successfully saved ${values.length} news items to ${sheetName}.`);
-  } catch (error) {
-    console.error(`Error saving data to ${sheetName}:`, error);
-    throw error;
-  }
+  console.log(`[GoogleSheets] ${sheetName}: đã xoá ${toDelete.length} bài cũ nhất (giữ bài đã lưu, trần ${maxRows}).`);
+  return toDelete.length;
 }
 
 export async function updateHeartbeatOnly(sheetName: string): Promise<void> {
@@ -432,6 +485,22 @@ function buildSeries(rows: GoldPriceRow[]): { series: GoldSeries[]; world: GoldW
     .slice(-MAX_HISTORY_DAYS);
 
   return { series, world };
+}
+
+/**
+ * Moc lan lay gia vang gan nhat (o Z1 - chi duoc ghi SAU KHI append thanh cong),
+ * dang epoch ms. null = chua co / doc loi -> caller coi nhu den han lay.
+ */
+export async function getGoldLastFetchEpoch(sheetName: string = 'GoldPrice'): Promise<number | null> {
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+  if (!spreadsheetId) return null;
+  try {
+    const res = await sheetsClient().spreadsheets.values.get({ spreadsheetId, range: `${sheetName}!Z1` });
+    return vnDateTimeToEpoch(res.data.values?.[0]?.[0]);
+  } catch (error) {
+    console.error(`[GoogleSheets] Không đọc được mốc lấy giá vàng gần nhất (${sheetName}!Z1):`, error);
+    return null;
+  }
 }
 
 /** Doc nhat ky loi nguon gia vang (o Y1) - dung de chan doan su co tren CI */

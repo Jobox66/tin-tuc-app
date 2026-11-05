@@ -2,7 +2,7 @@
 
 import type { NewsItem, GoldPriceRow, GoldSeries, GoldWorldPoint, GoldIntradaySnapshot } from "@/lib/google-sheets";
 import { useState, useTransition, useMemo } from "react";
-import { updateArticleStatus } from "@/app/actions";
+import { updateArticleStatus, loadAllNews } from "@/app/actions";
 import GoldPriceBoard from "./GoldPriceBoard";
 import GoldIntradayTable from "./GoldIntradayTable";
 
@@ -60,6 +60,8 @@ interface NewsFeedProps {
     initialGoldSeries?: GoldSeries[];
     initialGoldWorld?: GoldWorldPoint[];
     initialGoldIntraday?: GoldIntradaySnapshot[];
+    /** Con bai cu hon chua gui xuong (trang chi gui phan dau de nhe) */
+    initialHasMore?: Record<CategoryKey, boolean>;
 }
 
 export default function NewsFeed({
@@ -69,6 +71,7 @@ export default function NewsFeed({
     initialGoldSeries = [],
     initialGoldWorld = [],
     initialGoldIntraday = [],
+    initialHasMore = { general: false, finance: false },
 }: NewsFeedProps) {
     const [activeTab, setActiveTab] = useState<TabKey>(
         "general"
@@ -80,6 +83,8 @@ export default function NewsFeed({
         finance: initialFinance,
     });
 
+    const [hasMore, setHasMore] = useState<Record<CategoryKey, boolean>>(initialHasMore);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [, startTransition] = useTransition();
     const [currentPage, setCurrentPage] = useState(1);
     const [showSavedOnly, setShowSavedOnly] = useState(false);
@@ -117,6 +122,23 @@ export default function NewsFeed({
         setShowSavedOnly(false);
         setCurrentPage(1);
         window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    const handleLoadMore = async () => {
+        if (!isNewsTab(activeTab) || loadingMore) return;
+        const category = activeTab as CategoryKey;
+        setLoadingMore(true);
+        try {
+            const result = await loadAllNews(CATEGORY_SHEETS[category]);
+            if (!result.success) {
+                alert("Không tải được bài cũ hơn. Vui lòng thử lại.");
+                return;
+            }
+            setArticles(prev => ({ ...prev, [category]: result.items }));
+            setHasMore(prev => ({ ...prev, [category]: false }));
+        } finally {
+            setLoadingMore(false);
+        }
     };
 
     const handleToggleStatus = async (item: NewsItem, field: 'isHidden' | 'isSaved') => {
@@ -376,6 +398,19 @@ export default function NewsFeed({
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                         </svg>
+                    </button>
+                </div>
+            )}
+
+            {/* Trang chi gui phan dau; bai cu hon tai khi can */}
+            {isNewsTab(activeTab) && !showSavedOnly && hasMore[activeTab as CategoryKey] && currentPage >= totalPages && (
+                <div className="mt-10 flex justify-center">
+                    <button
+                        onClick={handleLoadMore}
+                        disabled={loadingMore}
+                        className="px-6 py-3 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 font-bold text-sm text-zinc-600 dark:text-zinc-400 hover:border-indigo-500 hover:text-indigo-600 disabled:opacity-50 transition-all shadow-sm"
+                    >
+                        {loadingMore ? "Đang tải..." : "Tải thêm bài cũ hơn"}
                     </button>
                 </div>
             )}

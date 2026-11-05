@@ -39,12 +39,22 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: '3.10'
+          # Cache thu muc tai cua pip, khoa theo requirements.txt
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      # Du lieu punkt cua nltk khong doi giua cac luot - khoi tai lai moi lan
+      - name: Cache NLTK data
+        uses: actions/cache@v6
+        with:
+          path: ~/nltk_data
+          key: nltk-punkt-punkt_tab-v1
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install newspaper3k lxml_html_clean nltk
-          python -c "import nltk; nltk.download('punkt'); nltk.download('punkt_tab')"
+          pip install -r requirements.txt
+          python -c "import nltk; nltk.data.find('tokenizers/punkt'); nltk.data.find('tokenizers/punkt_tab')" 2>/dev/null \
+            || python -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('punkt_tab', quiet=True)"
 
       - name: Install Node.js dependencies
         run: npm ci

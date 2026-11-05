@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "sync": "tsx src/scripts/sync-news.ts",
-    "sync:local": "tsx --env-file=.env src/scripts/sync-news.ts"
+    "sync:local": "tsx --env-file=.env src/scripts/sync-news.ts",
+    "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "googleapis": "^171.4.0",

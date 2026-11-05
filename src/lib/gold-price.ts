@@ -78,12 +78,18 @@ const FALLBACK_24H_URL = 'https://www.24h.com.vn/gia-vang-hom-nay-c425.html';
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36';
 
-async function fetchJson(url: string, label: string, attempts = 3): Promise<unknown> {
+// Tran thoi gian cho MOI lan goi. Khong dat thi fetch cua Node cho ket noi toi
+// ~10s (da do) va khong co gioi han cho phan nhan du lieu - mot nguon treo co
+// the giu ca luot sync.
+const DEFAULT_TIMEOUT_MS = 15_000;
+
+async function fetchJson(url: string, label: string, attempts = 3, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<unknown> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       const res = await fetch(url, {
         headers: { Accept: 'application/json', 'User-Agent': BROWSER_UA },
+        signal: AbortSignal.timeout(timeoutMs),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
       return await res.json();
@@ -208,6 +214,7 @@ function parseVNDate(dateStr: string): number {
 export async function fetch24hGoldPrices(): Promise<GoldPriceItem[]> {
   const res = await fetch(FALLBACK_24H_URL, {
     headers: { Accept: 'text/html', 'User-Agent': BROWSER_UA },
+    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
   const html = await res.text();
@@ -271,12 +278,18 @@ export async function fetchWorldGoldUsd(): Promise<number> {
 /**
  * BTMC: trả về ~1000 dòng gồm cả BẠC. Chỉ dòng vàng mới có karat ("24k").
  */
+// Tu trong nuoc BTMC tra loi trong 26ms-2,4s (do 03/11/2026, lan dau ton DNS/TLS).
+// Tu runner GitHub thi KHONG BAO GIO ket noi duoc. Truoc day thu 2 lan https +
+// 2 lan http, moi lan cho het timeout mac dinh ~10s => ~40s chet moi luot CI.
+// Gio moi giao thuc thu 1 lan, toi da 6s => toi da ~12s.
+const BTMC_TIMEOUT_MS = 6_000;
+
 async function fetchBtmcPrices(): Promise<{ items: GoldPriceItem[]; worldPrice: string }> {
   let data: { DataList?: { Data?: Record<string, string>[] } };
   try {
-    data = await fetchJson(BTMC_API_URL, 'BTMC API (https)', 2) as typeof data;
+    data = await fetchJson(BTMC_API_URL, 'BTMC API (https)', 1, BTMC_TIMEOUT_MS) as typeof data;
   } catch {
-    data = await fetchJson(BTMC_API_URL_INSECURE, 'BTMC API (http)', 2) as typeof data;
+    data = await fetchJson(BTMC_API_URL_INSECURE, 'BTMC API (http)', 1, BTMC_TIMEOUT_MS) as typeof data;
     console.log('   BTMC: lấy được qua HTTP.');
   }
   const rawItems = data?.DataList?.Data || [];

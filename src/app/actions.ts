@@ -2,7 +2,23 @@
 
 import { google } from 'googleapis';
 import { revalidatePath } from 'next/cache';
-import { getAuthClient } from '@/lib/google-sheets';
+import { getAuthClient, getNewsFromSheets, NewsItem } from '@/lib/google-sheets';
+import { sortNewsDesc } from '@/lib/news-feed';
+
+// Server action la endpoint cong khai - chi cho doc dung cac sheet tin.
+const READABLE_NEWS_SHEETS = new Set(['Sheet1', 'Finance']);
+
+/**
+ * Tai TOAN BO tin cua mot sheet khi nguoi dung bam "Tải thêm bài cũ hơn".
+ * getNewsFromSheets nuot loi va tra [] - khong duoc de client thay danh sach
+ * dang co bang mang rong, nen tra success=false trong truong hop do.
+ */
+export async function loadAllNews(sheetName: string): Promise<{ success: boolean; items: NewsItem[] }> {
+    if (!READABLE_NEWS_SHEETS.has(sheetName)) return { success: false, items: [] };
+    const { news } = await getNewsFromSheets(sheetName);
+    if (news.length === 0) return { success: false, items: [] };
+    return { success: true, items: sortNewsDesc(news) };
+}
 
 export async function updateArticleStatus(
     url: string,

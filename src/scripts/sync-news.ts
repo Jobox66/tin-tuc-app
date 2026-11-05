@@ -1,11 +1,35 @@
-import { aggregateNews, GENERAL_SOURCES, FINANCE_SOURCES, NewsSource } from '../lib/aggregator';
-import { saveNewsToSheets, getNewsFromSheets, updateHeartbeatOnly, NewsItem, saveGoldPricesToSheets } from '../lib/google-sheets';
+import { collectNewArticles, summarizeWithPython, runPool, SUMMARIZER_CONCURRENCY, GENERAL_SOURCES, FINANCE_SOURCES, NewsSource } from '../lib/aggregator';
+import {
+    appendNewsToSheet, readNewsRowRefs, updateNewsSummaries, trimNewsSheet,
+    updateHeartbeatOnly, saveGoldPricesToSheets, getGoldLastFetchEpoch, SummaryUpdate,
+} from '../lib/google-sheets';
 import { fetchGoldPrices, deadSources, degradedSources } from '../lib/gold-price';
+import { isGoldFetchDue, selectPendingSummaries, nextSummaryStatus } from '../lib/sync-plan';
 
-const SYNC_VERSION = "2026-09-17-v5";
+const SYNC_VERSION = "2026-11-03-v6";
 
-// Tran so bai giu lai moi sheet
+// Tran so bai giu lai moi sheet. Chi cat khi vuot them TRIM_SLACK bai de khong
+// phai xoa dong lat nhat o moi luot. Bai da Luu khong bao gio bi cat.
 const MAX_ITEMS_PER_SHEET = 5000;
+const TRIM_SLACK = 100;
+
+// So bai toi da duoc tom tat moi sheet moi luot. Bai con lai giu PENDING, luot
+// sau lam tiep - de mot dot ton dong (vd sau khi trigger chet nhieu gio) khong
+// keo mot luot ra qua timeout cua workflow.
+const MAX_SUMMARIES_PER_RUN = 120;
+
+// Nhip lay gia vang, TACH KHOI nhip quet tin. Moi lan lay them ~22 dong vao
+// GoldPrice va KHONG BAO GIO xoa (giu lich su) - neu lay theo nhip 5 phut cua
+// tin thi file cham tran 10 trieu o sau ~2 thang. --force-gold de bo qua.
+const GOLD_MIN_INTERVAL_MIN = Number(process.env.GOLD_MIN_INTERVAL_MINUTES ?? 30);
+const FORCE_GOLD = process.argv.includes('--force-gold');
+
+// Cho phep tro sang sheet tam de chay thu ca luong ma khong dung du lieu that.
+const SHEETS = {
+    general: process.env.SYNC_SHEET_GENERAL || 'Sheet1',
+    finance: process.env.SYNC_SHEET_FINANCE || 'Finance',
+    gold: process.env.SYNC_SHEET_GOLD || 'GoldPrice',
+};
 
 // Chay `npm run sync:local -- --today` de backfill: chi lay bai dang trong ngay.
 // Khong co co nay thi lay TAT CA bai chua co trong sheet.
@@ -51,146 +75,140 @@ function validateEnv() {
 }
 
 // ============= MAIN SYNC LOGIC =============
-async function syncCategory(name: string, sources: NewsSource[], sheetName: string) {
-    console.log(`\n🚀 [v${SYNC_VERSION}] Starting News Sync for Category: ${name} (${sheetName})...`);
+interface Category { name: string; sources: NewsSource[]; sheet: string }
 
-    // 1. Fetch existing news from Google Sheets
-    console.log(`📖 Step 1: Fetching existing news from ${sheetName}...`);
-    const response = await getNewsFromSheets(sheetName);
-    const existingNews = response.news;
-    console.log(`   Found ${existingNews.length} existing news items in ${sheetName}.`);
-    if (existingNews.length > 0) {
-        console.log(`   Sample Existing URL: ${existingNews[0].url}`);
-    }
-    const existingUrls = existingNews.map(n => n.url.trim());
+/** LUOT NHANH: doc RSS, them ngay bai moi vao sheet (tom tat tu RSS, cot I = PENDING) */
+async function collectCategory(cat: Category): Promise<number> {
+    console.log(`\n🚀 [v${SYNC_VERSION}] ${cat.name} (${cat.sheet}) - lấy tin mới...`);
 
-    // 2. Aggregate new news (passing existingUrls to skip re-summarizing)
+    const refs = await readNewsRowRefs(cat.sheet);
+    console.log(`   Sheet đang có ${refs.length} bài.`);
+
     const sinceTs = TODAY_ONLY ? startOfTodayVN() : 0;
-    console.log(`🌐 Step 2: Aggregating new news from ${sources.length} sources${TODAY_ONLY ? ' (CHI TRONG NGAY HOM NAY)' : ' (lay het bai moi)'}...`);
-    const newNews = await aggregateNews(sources, existingUrls, 100, 0, sinceTs);
-    console.log(`   ✅ Aggregated ${newNews.length} NEW news items for ${name}.`);
+    const newNews = await collectNewArticles(cat.sources, refs.map(r => r.url), 100, 0, sinceTs);
 
     if (newNews.length === 0) {
-        console.log(`   No new items for ${name}. Updating heartbeat only...`);
-        await updateHeartbeatOnly(sheetName);
-        console.log(`   ✅ Heartbeat updated for ${name}. No data rewrite needed.`);
+        console.log(`   Không có bài mới. Chỉ cập nhật heartbeat.`);
+        await updateHeartbeatOnly(cat.sheet);
+        return 0;
+    }
+
+    newNews.forEach(item => console.log(`   [${cat.name}] ➕ ${item.title}`));
+    await appendNewsToSheet(newNews, cat.sheet);
+    return newNews.length;
+}
+
+/** LUOT CHAM: tom tat cac bai PENDING/RETRY roi ghi lai dung o theo URL */
+async function summarizeCategory(cat: Category): Promise<void> {
+    const pending = selectPendingSummaries(await readNewsRowRefs(cat.sheet), MAX_SUMMARIES_PER_RUN);
+    if (pending.length === 0) {
+        console.log(`🧠 ${cat.name}: không có bài chờ tóm tắt.`);
         return;
     }
 
-    // 3. Merge, deduplicate and sort
-    console.log(`🔀 Step 3: Merging ${existingNews.length} existing + ${newNews.length} new items...`);
-    const newsMap = new Map<string, NewsItem>();
+    console.log(`🧠 ${cat.name}: tóm tắt ${pending.length} bài (song song ${SUMMARIZER_CONCURRENCY})...`);
+    const startedAt = Date.now();
+    const results = await runPool(pending, SUMMARIZER_CONCURRENCY, ref => summarizeWithPython(ref.url));
 
-    existingNews.forEach(item => newsMap.set(item.url.trim(), item));
-    newNews.forEach(item => {
-        const url = item.url.trim();
-        if (!newsMap.has(url)) {
-            console.log(`   [${name}] ➕ Adding NEW: ${item.title}`);
-        } else {
-            console.log(`   [${name}] 🔄 Updating: ${item.title}`);
-        }
-        newsMap.set(url, { ...item, url });
+    const updates: SummaryUpdate[] = pending.map((ref, i) => {
+        const result = results[i];
+        const ok = !!result?.summary;
+        return {
+            url: ref.url,
+            status: nextSummaryStatus(ref.status, ok),
+            summary: ok ? result!.summary : undefined,
+            thumbnail: ok ? result!.image || undefined : undefined,
+        };
     });
-
-    const mergedNews = Array.from(newsMap.values());
-
-    // Sort by timestamp descending (newest first)
-    mergedNews.sort((a, b) => {
-        const timeA = isNaN(a.timestamp) ? 0 : a.timestamp;
-        const timeB = isNaN(b.timestamp) ? 0 : b.timestamp;
-        return timeB - timeA;
-    });
-
-    // Giu lai toi da MAX_ITEMS_PER_SHEET bai moi nhat
-    const finalNews = mergedNews.slice(0, MAX_ITEMS_PER_SHEET);
-    if (mergedNews.length > MAX_ITEMS_PER_SHEET) {
-        console.log(`   ✂️ Cắt bớt ${mergedNews.length - MAX_ITEMS_PER_SHEET} bài cũ nhất (trần ${MAX_ITEMS_PER_SHEET}).`);
-    }
-    console.log(`   Total after merge: ${finalNews.length} items.`);
-
-    // 4. Save back to Google Sheets
-    console.log(`💾 Step 4: Saving to Google Sheets (${sheetName})...`);
-    await saveNewsToSheets(finalNews, sheetName);
-    console.log(`🎉 Sync Complete for ${name}!`);
+    const written = await updateNewsSummaries(cat.sheet, updates);
+    const failedCount = updates.filter(u => !u.summary).length;
+    console.log(`🧠 ${cat.name}: ghi ${written} kết quả (${failedCount} bài không tóm tắt được, giữ tóm tắt RSS) trong ${((Date.now() - startedAt) / 1000).toFixed(1)}s.`);
 }
 
 // ============= MAIN GOLD SYNC LOGIC =============
-async function syncGold() {
-    console.log(`\n🚀 [v${SYNC_VERSION}] Starting Gold Price Sync...`);
-    try {
-        const snapshot = await fetchGoldPrices();
-        if (snapshot.items.length > 0) {
-            await saveGoldPricesToSheets(snapshot, 'GoldPrice');
-
-            // Nguon tuy chon thieu: canh bao that ro nhung khong lam do workflow,
-            // neu khong thi luot nao cung do va canh bao mat tac dung.
-            const degraded = degradedSources(snapshot);
-            if (degraded.length > 0) {
-                console.warn(`⚠️ THIẾU NGUỒN TUỲ CHỌN: ${degraded.join(', ')} - đã lưu ${snapshot.items.length} mặt hàng lấy được. Xem ô Y1 của sheet GoldPrice để biết lý do.`);
-            }
-
-            // Nguon bat buoc thieu thi coi nhu luot sync hong.
-            const dead = deadSources(snapshot);
-            if (dead.length > 0) {
-                throw new Error(`Thiếu nguồn giá vàng bắt buộc: ${dead.join(', ')} (đã lưu phần lấy được)`);
-            }
-
-            console.log(`🎉 Gold Sync Complete!${degraded.length > 0 ? ` (thiếu ${degraded.join(', ')})` : ''}`);
-        } else {
-            throw new Error('Không lấy được mặt hàng vàng nào từ bất kỳ nguồn nào.');
+async function syncGold(): Promise<void> {
+    if (!FORCE_GOLD) {
+        const last = await getGoldLastFetchEpoch(SHEETS.gold);
+        if (!isGoldFetchDue(last, Date.now(), GOLD_MIN_INTERVAL_MIN * 60_000)) {
+            const ago = Math.round((Date.now() - last!) / 60_000);
+            console.log(`\n🥇 Bỏ qua giá vàng: lần lấy gần nhất cách đây ${ago} phút (nhịp ${GOLD_MIN_INTERVAL_MIN} phút).`);
+            return;
         }
-    } catch (e) {
-        console.error(`❌ Gold Sync FAILED:`, e);
-        throw e;
     }
+
+    console.log(`\n🚀 [v${SYNC_VERSION}] Starting Gold Price Sync...`);
+    const snapshot = await fetchGoldPrices();
+    if (snapshot.items.length === 0) {
+        throw new Error('Không lấy được mặt hàng vàng nào từ bất kỳ nguồn nào.');
+    }
+    await saveGoldPricesToSheets(snapshot, SHEETS.gold);
+
+    // Nguon tuy chon thieu: canh bao that ro nhung khong lam do workflow,
+    // neu khong thi luot nao cung do va canh bao mat tac dung.
+    const degraded = degradedSources(snapshot);
+    if (degraded.length > 0) {
+        console.warn(`⚠️ THIẾU NGUỒN TUỲ CHỌN: ${degraded.join(', ')} - đã lưu ${snapshot.items.length} mặt hàng lấy được. Xem ô Y1 của sheet ${SHEETS.gold} để biết lý do.`);
+    }
+
+    // Nguon bat buoc thieu thi coi nhu luot sync hong.
+    const dead = deadSources(snapshot);
+    if (dead.length > 0) {
+        throw new Error(`Thiếu nguồn giá vàng bắt buộc: ${dead.join(', ')} (đã lưu phần lấy được)`);
+    }
+
+    console.log(`🎉 Gold Sync Complete!${degraded.length > 0 ? ` (thiếu ${degraded.join(', ')})` : ''}`);
 }
 
 // ============= ENTRY POINT =============
 async function sync() {
-    const failedCategories: string[] = [];
+    const failed: string[] = [];
+    const step = async (label: string, fn: () => Promise<unknown>) => {
+        try {
+            await fn();
+        } catch (err) {
+            console.error(`\n❌ ${label} FAILED:`, err);
+            failed.push(label);
+        }
+    };
 
     try {
         console.log(`\n${'='.repeat(60)}`);
         console.log(`📰 NEWS SYNC STARTED at ${new Date().toISOString()}`);
         console.log(`${'='.repeat(60)}`);
 
-        // Step 0: Validate
         validateEnv();
 
-        // Run Gold Sync
-        try {
-            await syncGold();
-        } catch (goldError) {
-             console.error(`\n❌ Gold Sync FAILED:`, goldError);
-             failedCategories.push('GoldPrice');
-        }
-
-        // Define all categories
-        const categories: { name: string; sources: NewsSource[]; sheet: string }[] = [
-            { name: 'General', sources: GENERAL_SOURCES, sheet: 'Sheet1' },
-            { name: 'Finance', sources: FINANCE_SOURCES, sheet: 'Finance' },
+        const categories: Category[] = [
+            { name: 'General', sources: GENERAL_SOURCES, sheet: SHEETS.general },
+            { name: 'Finance', sources: FINANCE_SOURCES, sheet: SHEETS.finance },
         ];
 
-        // Sync each category independently
-        for (const cat of categories) {
-            try {
-                await syncCategory(cat.name, cat.sources, cat.sheet);
-            } catch (catError) {
-                console.error(`\n❌ Category ${cat.name} FAILED:`, catError);
-                failedCategories.push(cat.name);
-            }
-        }
+        // Gia vang ghi sheet rieng -> chay SONG SONG voi phan tin. Truoc day no
+        // chay truoc va bat tin phai cho het phan cho BTMC.
+        const goldTask = step('GoldPrice', syncGold);
+
+        // 1. Luot nhanh: tin len sheet ngay
+        const t0 = Date.now();
+        for (const cat of categories) await step(`${cat.name}: lấy tin`, () => collectCategory(cat));
+        console.log(`\n⏱️ Tin mới đã lên sheet sau ${((Date.now() - t0) / 1000).toFixed(1)}s.`);
+
+        // 2. Luot cham: tom tat. 3. Cat tia - lam SAU tom tat de khong lam dich
+        // dong giua luc doc va ghi ket qua tom tat.
+        for (const cat of categories) await step(`${cat.name}: tóm tắt`, () => summarizeCategory(cat));
+        for (const cat of categories) await step(`${cat.name}: cắt bớt`, () => trimNewsSheet(cat.sheet, MAX_ITEMS_PER_SHEET, TRIM_SLACK));
+
+        await goldTask;
 
         console.log(`\n${'='.repeat(60)}`);
-        if (failedCategories.length > 0) {
-            console.warn(`⚠️ SYNC PARTIAL - Failed categories: ${failedCategories.join(', ')}`);
+        if (failed.length > 0) {
+            console.warn(`⚠️ SYNC PARTIAL - Failed: ${failed.join(', ')}`);
             console.log(`${'='.repeat(60)}\n`);
             // Báo ĐỎ. Trước đây partial failure vẫn exit 0 nên GitHub báo xanh:
             // BTMC chết từ 19/9 đến 23/9 qua 30 lượt chạy mà không ai biết.
             // Dữ liệu của các mục thành công VẪN đã được ghi trước khi thoát.
             process.exit(1);
         } else {
-            console.log(`✅ ALL SYNC COMPLETE at ${new Date().toISOString()}`);
+            console.log(`✅ ALL SYNC COMPLETE at ${new Date().toISOString()} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
             console.log(`${'='.repeat(60)}\n`);
         }
 

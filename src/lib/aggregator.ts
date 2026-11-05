@@ -4,7 +4,8 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 
-const parser = new Parser();
+// Mac dinh rss-parser cho toi 60s moi feed; feed binh thuong tra trong <1s
+const parser = new Parser({ timeout: 15_000 });
 const execFileAsync = promisify(execFile);
 
 export interface NewsSource {
@@ -103,13 +104,13 @@ export function parsePubDate(raw: string | undefined, now: number = Date.now()):
     return ts > now + 5 * 60_000 ? now : ts;
 }
 
-const SUMMARIZER_CONCURRENCY = 4;
+export const SUMMARIZER_CONCURRENCY = 4;
 
 /**
  * Chạy `worker` trên toàn bộ `items` với tối đa `limit` tác vụ đồng thời,
  * trả kết quả theo đúng thứ tự đầu vào.
  */
-async function runPool<T, R>(
+export async function runPool<T, R>(
     items: T[],
     limit: number,
     worker: (item: T, index: number) => Promise<R>
@@ -131,7 +132,7 @@ async function runPool<T, R>(
  * Gọi Python summarizer (bất đồng bộ - execSync sẽ khoá hẳn event loop).
  * Trả về null nếu thất bại để caller giữ nguyên dữ liệu lấy từ RSS.
  */
-async function summarizeWithPython(url: string): Promise<{ summary: string; image?: string } | null> {
+export async function summarizeWithPython(url: string): Promise<{ summary: string; image?: string } | null> {
     const pythonPath = process.env.PYTHON_PATH || path.join(process.cwd(), '.venv', process.platform === 'win32' ? 'Scripts' : 'bin', 'python');
     const scriptPath = path.join(process.cwd(), 'src', 'scripts', 'summarizer.py');
 
@@ -154,7 +155,12 @@ async function summarizeWithPython(url: string): Promise<{ summary: string; imag
     }
 }
 
-export async function aggregateNews(
+/**
+ * LUOT NHANH: chi doc RSS, loc bai da co/trung, tra ve bai moi voi tom tat va
+ * anh lay san tu RSS. KHONG goi summarizer - viec do do luot cham lam sau
+ * (xem summarizeWithPython + cot I cua sheet), de tin len sheet ngay.
+ */
+export async function collectNewArticles(
     sources: NewsSource[],
     existingUrls: string[] = [],
     // Feed cua VNExpress/Tuoi Tre tra 50-60 bai; quet het de khong bo sot
@@ -174,9 +180,10 @@ export async function aggregateNews(
     const perSource = await Promise.all(sources.map(async (source) => {
         try {
             console.log(`Fetching from: ${source.name}...`);
-            // Add cache-buster to URL
-            const urlWithCacheBuster = `${source.url}${source.url.includes('?') ? '&' : '?'}t=${Date.now()}`;
-            const feed = await parser.parseURL(urlWithCacheBuster);
+            // KHONG gan cache-buster (?t=...): da doi chieu 02/11/2026 - ban qua CDN
+            // va ban ep tai moi cho cung bai dau tien o ca 7 feed, nen buster chi
+            // lam bao phai tra ban day du moi luot ma khong duoc gi.
+            const feed = await parser.parseURL(source.url);
 
             // Limit items per source
             const feedItems = feed.items.slice(0, maxItemsPerSource);
@@ -260,30 +267,14 @@ export async function aggregateNews(
         .join(', ');
     console.log(`📊 Lấy ${candidates.length} bài${budget === Infinity ? ' (không giới hạn)' : `/${maxNewItems} suất`}: ${share}`);
 
-    if (candidates.length === 0) return [];
-
-    // ===== Giai đoạn 2: tóm tắt song song =====
-    console.log(`🧠 Summarizing ${candidates.length} new articles (concurrency=${SUMMARIZER_CONCURRENCY}, timeout=${SUMMARIZER_TIMEOUT_MS / 1000}s)...`);
-    const startedAt = Date.now();
-
-    const summaries = await runPool(candidates, SUMMARIZER_CONCURRENCY, async (candidate) => {
-        console.log(`Summarizing: ${candidate.title}...`);
-        return summarizeWithPython(candidate.url);
-    });
-
-    console.log(`🧠 Summarization done in ${((Date.now() - startedAt) / 1000).toFixed(1)}s.`);
-
-    return candidates.map((candidate, index) => {
-        const result = summaries[index];
-        return {
-            title: candidate.title,
-            summary: result?.summary || candidate.summary,
-            url: candidate.url,
-            date: candidate.pubDate.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
-            thumbnail: result?.image || candidate.thumbnail,
-            timestamp: candidate.timestamp,
-        };
-    });
+    return candidates.map(candidate => ({
+        title: candidate.title,
+        summary: candidate.summary,
+        url: candidate.url,
+        date: candidate.pubDate.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
+        thumbnail: candidate.thumbnail,
+        timestamp: candidate.timestamp,
+    }));
 }
 
 function extractThumbnail(content: string): string {

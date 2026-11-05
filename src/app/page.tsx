@@ -1,8 +1,11 @@
-import { getNewsFromSheets, getLatestGoldPricesFromSheets, NewsItem } from "@/lib/google-sheets";
+import { getNewsFromSheets, getLatestGoldPricesFromSheets } from "@/lib/google-sheets";
+import { buildInitialFeed } from "@/lib/news-feed";
 import NewsFeed from "@/components/NewsFeed";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+// Cache trang 60s thay vi doc lai 3 sheet (~7MB) tu Google o MOI luot truy cap.
+// Tin moi cham toi da 60s; Luu/An bai van thay ngay vi actions.ts goi
+// revalidatePath('/').
+export const revalidate = 60;
 
 export default async function Home() {
   // Đọc song song 6 sheet - tuần tự khiến TTFB cộng dồn 6 lượt gọi Google API
@@ -16,16 +19,9 @@ export default async function Home() {
   const financeNews = financeRes.news;
   const heartbeat = generalRes.heartbeat || financeRes.heartbeat;
 
-  // Sorting helper
-  const sortByTimestamp = (items: NewsItem[]) =>
-    [...items].sort((a, b) => {
-      const timeA = isNaN(a.timestamp) ? 0 : a.timestamp;
-      const timeB = isNaN(b.timestamp) ? 0 : b.timestamp;
-      return timeB - timeA;
-    });
-
-  const sortedGeneral = sortByTimestamp(generalNews);
-  const sortedFinance = sortByTimestamp(financeNews);
+  // Chi gui phan dau (moi nhat + bai da luu) xuong trinh duyet
+  const generalFeed = buildInitialFeed(generalNews);
+  const financeFeed = buildInitialFeed(financeNews);
 
   // Find latest article timestamp
   const allNews = [...generalNews, ...financeNews];
@@ -78,8 +74,9 @@ export default async function Home() {
         </header>
 
         <NewsFeed
-          initialGeneral={sortedGeneral}
-          initialFinance={sortedFinance}
+          initialGeneral={generalFeed.items}
+          initialFinance={financeFeed.items}
+          initialHasMore={{ general: generalFeed.hasMore, finance: financeFeed.hasMore }}
           initialGoldPrices={goldRes.prices}
           initialGoldSeries={goldRes.series}
           initialGoldWorld={goldRes.world}

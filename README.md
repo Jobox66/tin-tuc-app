@@ -82,7 +82,9 @@ Một nguồn lỗi không ảnh hưởng nguồn còn lại.
 > sức và đồng xu chỉ có khi sync chạy từ trong nước. Vàng nhẫn vẫn còn qua
 > `Nhẫn Trơn PNJ 999.9`.
 >
-> Ép test nhánh dự phòng: `BTMC_API_HOST=khong-ton-tai.invalid npm run sync:local`
+> Ép test nhánh dự phòng: `BTMC_API_HOST=khong-ton-tai.invalid npm run sync:local -- --force-gold`
+> (lỗi DNS, hỏng ngay). Muốn tái hiện đúng kiểu **timeout** như trên runner GitHub thì dùng
+> `BTMC_API_HOST=10.255.255.1`: mỗi giao thức chỉ thử 1 lần, tối đa 6 giây.
 >
 > Nguồn chia hai nhóm: **bắt buộc** (`PNJ`) thiếu là workflow đỏ; **tuỳ chọn**
 > (`BTMC`) thiếu thì cảnh báo và ghi lý do vào ô **Y1** của sheet `GoldPrice`,
@@ -152,16 +154,18 @@ giá thế giới quy đổi để xác nhận.
                     └──────────────┘     └──────────────┘
 ```
 
-### Luồng Sync (mỗi 30 phút):
+### Luồng Sync (v6, từ 03/11/2026):
 1. GitHub Actions trigger `sync-news.ts`
-2. Với mỗi category (2 mục), tuần tự:
-   - Đọc tin hiện tại từ Google Sheets
-   - Fetch RSS feeds → lấy tối đa **15 bài/nguồn**
-   - Lọc bỏ bài đã tồn tại (theo URL)
-   - Gọi Python summarizer cho bài mới (tối đa **10 bài mới/category**, timeout **30 giây/bài**)
-   - Merge + sắp xếp theo thời gian → ghi lại Google Sheets
-3. Nếu không có tin mới → chỉ update heartbeat (cell Z1)
-4. Mỗi category có try/catch riêng → 1 category lỗi không ảnh hưởng category khác
+2. **Giá vàng chạy song song** với phần tin, và chỉ lấy khi lần trước đã cách ≥ `GOLD_MIN_INTERVAL_MINUTES` (mặc định 30 phút, đọc mốc ở ô Z1 của `GoldPrice`). `--force-gold` để bỏ qua.
+3. **Lượt nhanh** (mỗi category): đọc RSS → lọc bài đã có (theo URL) → **append** bài mới vào cuối sheet với tóm tắt + ảnh lấy sẵn từ RSS, cột **I = `PENDING`**. Tin lên sheet sau vài giây.
+4. **Lượt chậm**: Python summarizer xử lý các bài `PENDING`/`RETRY` (mới nhất trước, tối đa 120 bài/sheet/lượt), ghi lại đúng ô B/E/I theo URL. Hỏng lần 1 → `RETRY`, lần 2 → `FAILED` (giữ tóm tắt RSS). Dòng cũ có cột I trống không bị tóm tắt lại.
+5. **Cắt tỉa**: khi sheet vượt 5000 + 100 bài thì xoá bài cũ nhất về 5000, **không bao giờ xoá bài đã Lưu**.
+6. Nếu không có tin mới → chỉ update heartbeat (cell Z1)
+7. Mỗi bước có try/catch riêng; bước nào lỗi thì workflow báo đỏ nhưng phần thành công vẫn được ghi.
+
+> Sheet không còn được giữ theo thứ tự mới nhất trước (bài mới nằm cuối). Trang web tự sắp xếp theo timestamp.
+>
+> Chạy thử cả luồng trên bản sao sheet: đặt `SYNC_SHEET_GENERAL`, `SYNC_SHEET_FINANCE`, `SYNC_SHEET_GOLD` trỏ sang tab tạm. Unit test các hàm quyết định: `npm test`.
 
 ---
 
@@ -264,15 +268,18 @@ File: `.github/workflows/sync.yml`
 |--------|---------|----------|
 | `maxItemsPerSource` | 100 | Quét hết feed (VNExpress/Tuổi Trẻ trả 50-60 bài) |
 | `maxNewItems` | **0 = không giới hạn** | Mỗi lượt lấy bằng hết bài chưa có trong sheet |
-| `MAX_ITEMS_PER_SHEET` | 5000 | Trần số bài giữ lại mỗi sheet (trước là 500) |
+| `MAX_ITEMS_PER_SHEET` | 5000 (+100 dư) | Trần số bài giữ lại mỗi sheet; bài đã Lưu không bị cắt |
+| `MAX_SUMMARIES_PER_RUN` | 120 | Số bài tóm tắt tối đa mỗi sheet mỗi lượt |
+| `GOLD_MIN_INTERVAL_MINUTES` | 30 | Nhịp lấy giá vàng, tách khỏi nhịp quét tin |
 | `SUMMARIZER_TIMEOUT_MS` | 30 giây | Tránh treo khi URL không phản hồi |
 | `SUMMARIZER_CONCURRENCY` | 4 | Tóm tắt song song 4 bài (trước tuần tự, chặn event loop) |
 | Chia suất vòng tròn | ✅ | Khi có đặt `maxNewItems`, chia đều cho mọi nguồn |
-| Nới lưới tự động | ✅ | `values.update` không tự mở rộng sheet quá 1000 dòng - phải nới trước khi ghi |
+| Append thay vì ghi đè | ✅ | `values.append` tự nới lưới; không ghi lại cả sheet, không đè thao tác Lưu/Ẩn đang diễn ra |
+| Timeout mọi lời gọi giá vàng | ✅ | 15s mặc định, BTMC 6s × 1 lần/giao thức (trước ~40s chờ mỗi lượt CI) |
+| Trang cache 60s + gửi 300 bài/tab | ✅ | Trước: 9,6MB, TTFB ~1,7s mỗi lượt mở; nút "Tải thêm bài cũ hơn" tải phần còn lại |
 | Ghi theo lô 1000 dòng | ✅ | Vài nghìn dòng tóm tắt trong 1 request dễ vượt giới hạn payload |
 | Try/catch per category | ✅ | 1 category lỗi không ảnh hưởng category khác |
 | Heartbeat-only update | ✅ | Không ghi lại toàn bộ sheet khi không có tin mới |
-| Ghi trước - xoá sau | ✅ | Lỗi giữa chừng không để lại sheet trống |
 
 
 ## ⏱️ Kích hoạt sync đúng nhịp (bộ kích hoạt ngoài)
