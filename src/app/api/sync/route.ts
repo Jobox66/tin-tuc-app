@@ -3,7 +3,8 @@
  * khong phai cho GitHub Actions (lich bi GitHub hoan 4-8 tieng tren repo cong khai).
  *
  * Chi doc RSS + them bai moi (cot I = PENDING). Tom tat bang Python, gia vang,
- * don trung/cat bot van do GitHub Actions lam.
+ * don trung/cat bot van do GitHub Actions lam - va route nay tu kich hoat
+ * GitHub Actions moi ~10 phut (xem src/lib/github-dispatch.ts).
  *
  * Goi:  GET (hoac POST) /api/sync
  *       Header  Authorization: Bearer <SYNC_SECRET>
@@ -12,6 +13,7 @@
 import { timingSafeEqual } from 'crypto';
 import { revalidatePath } from 'next/cache';
 import { CATEGORIES, collectCategory } from '@/lib/news-sync';
+import { maybeDispatchGithub } from '@/lib/github-dispatch';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,6 +41,14 @@ async function handle(req: Request): Promise<Response> {
     }
 
     const startedAt = Date.now();
+    // Kich hoat GitHub Actions (tom tat, gia vang, don dep) song song voi lay tin.
+    // Loi o day KHONG lam route tra 500: cron-job.org tu tat job sau nhieu lan
+    // loi, se keo theo ca luot lay tin. Loi duoc ghi log Vercel + tra trong JSON.
+    const githubTask = maybeDispatchGithub(startedAt).then(r => {
+        if (r.error) console.error(`[api/sync] GitHub dispatch lỗi: ${r.error}`);
+        return r;
+    });
+
     // Hai sheet doc lap -> chay song song
     const results = await Promise.all(CATEGORIES.map(async cat => {
         try {
@@ -52,9 +62,10 @@ async function handle(req: Request): Promise<Response> {
     // Trang dang cache 60s - co bai moi thi lam moi ngay
     if (results.some(r => (r.added ?? 0) > 0)) revalidatePath('/');
 
+    const github = await githubTask;
     const failed = results.some(r => 'error' in r);
     return Response.json(
-        { ok: !failed, results, ms: Date.now() - startedAt },
+        { ok: !failed, results, github, ms: Date.now() - startedAt },
         // Mot muc loi -> 500 de cron-job.org bao loi (phan thanh cong van da ghi)
         { status: failed ? 500 : 200, headers: { 'Cache-Control': 'no-store' } }
     );
