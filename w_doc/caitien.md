@@ -1,72 +1,226 @@
-# Kế hoạch cải tiến tốc độ thu thập tin
+# Tin Tức App: việc tiếp theo, quyết định đã chốt, tài liệu kỹ thuật
 
-> Lập ngày 2026-11-02, cập nhật 2026-11-03 sau khi làm xong các mục Claude tự làm được. **STT = mức độ ưu tiên và cũng là thứ tự làm** (1 làm trước nhất).
-> Quyết định của anh (02/11): **chưa chuyển khỏi Google Sheets**; được cắt bớt tin cũ nếu cần; **giá vàng phải giữ toàn bộ lịch sử**.
-> Code mới **chưa commit**. Anh review và commit/push; bản v6 chỉ chạy thật sau khi push.
+> Cập nhật 06/11/2026. Code đã lên **v5.0** (commit `f323501`, 05/11). Các thay đổi ngày 06/11 (giá vàng ghi theo thay đổi, khung biến động trong ngày, route `/api/sync`, sửa nguồn tài chính) **chưa commit**.
 
-## Danh sách cải tiến
+## 1. Việc cần làm tiếp
 
-| STT | Hạng mục | Hiện trạng trước khi sửa | Đã làm / Dự kiến | Kết quả đo được | Ai làm | Trạng thái |
-|:---:|---|---|---|---|---|---|
-| 1 | **Tách nhịp lấy giá vàng khỏi nhịp lấy tin** | Lượt sync nào cũng append ~22 dòng giá vàng; nếu bật trigger 5 phút sẽ thành ~6.300 dòng/ngày | Chỉ lấy khi ô Z1 của `GoldPrice` đã cách ≥ 30 phút (bù 2 phút lệch nhịp). Đổi nhịp bằng biến `GOLD_MIN_INTERVAL_MINUTES`; `--force-gold` để ép lấy | Lượt chạy ngay sau đó bỏ qua đúng ("cách đây 1 phút"). Ở nhịp 30 phút: ~1.060 dòng/ngày | Claude | ✅ Xong |
-| 2 | **Sửa bộ kích hoạt ngoài** (cron-job.org → `workflow_dispatch`) | Lượt `workflow_dispatch` cuối là 24/9; các lượt cách nhau **133–430 phút** | Xem lịch sử thực thi trên cron-job.org để biết mã HTTP (401 = token hết hạn, 403 = thiếu quyền `Actions: write`, 404 = sai repo/file, 422 = sai `ref`). Sửa xong đặt lịch 5–10 phút | Kỳ vọng: độ trễ tin từ **2–7 tiếng còn ~5–10 phút** | **Anh** | ☐ Chưa làm. **Làm sau khi đã push v6** (cần mục 1 chạy trước) |
-| 3 | **Không chờ BTMC trên runner GitHub** | Thử 4 lần, không có timeout riêng → ước tính ~40s chờ mỗi lượt CI; giá vàng chạy tuần tự trước phần tin | Mọi lời gọi giá vàng có timeout (15s); BTMC chỉ thử 1 lần/giao thức, 6s; giá vàng chạy **song song** với phần tin | Giả lập BTMC không phản hồi: hỏng sau 2×6s, chuyển sang 24h.com.vn đúng; cả lượt vẫn chỉ **14,7s** | Claude | ✅ Xong |
-| 4 | **Bỏ cache-buster `?t=` trên URL RSS** | Mọi feed bị gắn `?t=Date.now()` | Bỏ tham số; thêm timeout 15s cho feed (trước là 60s) | Đã đối chiếu 7 feed: bản có và không có `?t=` cho cùng bài đầu tiên. Feed chỉ mất 10–750ms nên **lợi về tốc độ rất nhỏ**; lợi chính là bớt tải cho báo | Claude | ✅ Xong |
-| 5 | **Đổi cách ghi tin vào Sheets + giữ bài đã lưu khi cắt** | Ghi đè cả sheet mỗi lượt; cắt theo thời gian nên xoá cả bài đã Lưu; thao tác Lưu/Ẩn bấm trong lúc sync chạy bị ghi đè | Append bài mới vào cuối sheet; ghi tóm tắt theo URL; khi vượt 5.000 + 100 bài thì xoá bài cũ nhất về 5.000, **không xoá bài đã Lưu** | Chạy trên bản sao sheet thật: 0 bài trùng, dòng cũ giữ nguyên, xoá đúng bài cũ nhất, 3/3 bài đã Lưu được giữ | Claude | ✅ Xong |
-| 6 | **Tách bước tóm tắt ra khỏi đường lấy tin** | Phải tóm tắt xong mới ghi bài lên sheet | **Lượt nhanh:** RSS → append ngay, cột I = `PENDING`. **Lượt chậm:** Python tóm tắt bài `PENDING`/`RETRY` (tối đa 120 bài/sheet/lượt), hỏng 2 lần → `FAILED` và giữ tóm tắt RSS. Dòng cũ (cột I trống) không bị tóm tắt lại | Tin lên sheet sau **3,2–4,1s**. Cả lượt có 11 bài mới mất **20,4s** (trước: trung vị 88s trên CI). Nhánh lỗi PENDING → RETRY → FAILED đã kiểm | Claude | ✅ Xong |
-| 7 | **Giảm tải trang web** | Mỗi lượt mở trang đọc lại ~7MB từ Google rồi gửi cả ~6.800 bài xuống trình duyệt | Trang cache 60s (`revalidate = 60`, Lưu/Ẩn vẫn làm mới ngay); chỉ gửi 300 bài mới nhất mỗi tab + mọi bài đã Lưu; nút **"Tải thêm bài cũ hơn"** ở trang cuối tải phần còn lại | Đo `next start` cùng dữ liệu: bản cũ **9,6MB, TTFB ~1,7s** → bản mới **1,0MB, TTFB ~0,02s** | Claude | ✅ Xong (nút "Tải thêm" mới kiểm qua HTTP, **anh cần bấm thử trên trình duyệt**) |
-| 8 | **Gộp lịch sử giá vàng theo ngày** | `GoldPrice` chỉ append, không xoá; lưới 26 cột; trang chỉ đọc 40.000 dòng gần nhất | Thêm sheet `GoldDaily` (mỗi mặt hàng 1 dòng/ngày) giữ vĩnh viễn; dữ liệu từng lần chỉ giữ ~14 ngày; dời Y1/Z1, thu lưới còn 8 cột | Mục 1 đã giảm áp lực, nên mục này **không còn gấp** | Claude viết code; **anh duyệt** trước khi chạy script ghi lên sheet thật | ☐ Chờ ý kiến anh |
-| 9 | **Chuyển lượt quét tin nhanh sang Vercel** | Mỗi lượt GitHub Actions tốn ~39s dựng máy | Route `/api/sync` có khoá bí mật, cron-job.org gọi 2–5 phút; GitHub Actions chỉ còn tóm tắt + giá vàng | Nền đã sẵn: lượt nhanh giờ chỉ cần RSS + Sheets, không cần Python | Claude viết code; **anh** cấu hình Vercel + cron-job.org | ☐ Chờ ý kiến anh |
-| 10 | **Cache pip/nltk trong workflow** | Mỗi lượt cài lại thư viện Python + tải lại `punkt` | `cache: 'pip'` theo `requirements.txt`, cache `~/nltk_data`, bỏ bước nâng cấp pip, chỉ tải `punkt` khi chưa có | YAML hợp lệ; pip đọc được `requirements.txt` (có BOM). **Chưa chạy trên CI**, phải xem thời gian bước cài ở lượt chạy đầu sau khi push | Claude | ✅ Xong (chờ xác nhận trên CI) |
-| 11 | **Sửa 2 nguồn tài chính đã chết** 🆕 | Sheet `Finance` có 1.821 bài **đều từ CafeF**. Vietstock trả trang HTML thay vì RSS; Báo Đầu tư trả feed rỗng (lỗi có từ trước, không do v6) | Thay bằng feed tiếng Việt khác cùng chuyên mục, hoặc bỏ 2 nguồn này | — | **Anh quyết** nguồn thay thế; Claude kiểm feed rồi thêm | ☐ Chờ ý kiến anh |
-| 12 | **Tải có điều kiện (ETag / If-Modified-Since)** | — | — | Đã kiểm 7 feed: **không feed nào gửi ETag hay Last-Modified**, nên không áp dụng được | — | ✖ Không áp dụng |
-| 13 | **Thay Google Sheets bằng Postgres** | Đọc 5.000 dòng mất 1–1,7s, chưa phải nút thắt | — | — | — | ✖ Không làm (anh quyết 02/11) |
+| # | Việc | Ai | Ghi chú |
+|:---:|---|---|---|
+| 1 | Vercel: thêm biến `SYNC_SECRET` (chưa cần Redeploy) | Anh | Khoá ngẫu nhiên ≥ 24 ký tự, không đưa vào code hay chat. Cách làm ở mục 3.6. Đặt trước khi push để bản deploy ở bước 2 nhận luôn biến này |
+| 2 | Commit/push thay đổi ngày 06/11 | Anh | Đã chạy lại trên máy: 32 test pass, `tsc`, `eslint` và `npm run build` không lỗi. 9 file sửa (có xoá `GoldIntradayTable.tsx`), 6 file mới: `src/app/api/sync/route.ts`, `src/lib/news-sync.ts`, `src/lib/gold-moves.ts`, `src/components/GoldDayMovesPanel.tsx`, 2 file test. Push xong Vercel tự deploy |
+| 3 | cron-job.org: tạo job gọi `/api/sync` mỗi 5 phút | Anh | Đây là đường lấy tin chính. Bấm "Test run" phải ra `200` |
+| 4 | Sửa trigger GitHub (`workflow_dispatch`), đặt 10–15 phút một lần | Anh | Cần để tóm tắt và giá vàng chạy đều. Từ 24/9 chưa có lượt dispatch nào, lịch `schedule` đang bị GitHub hoãn 4–8 tiếng. Cách làm ở mục 3.7 |
+| 5 | Bấm thử trên trình duyệt: nút "Tải thêm bài cũ hơn" (trang cuối tab Tin Chung) và chọn ngày trong khung "Biến động trong ngày" | Anh | Hai chỗ này mới kiểm qua server, chưa kiểm trên trình duyệt |
+| 6 | Kiểm tra sau khi anh làm xong bước 2–4: lượt chạy CI, nhịp lấy tin, dữ liệu sheet | Claude | |
+| 7 | Quyết định: Vietstock giữ `/0/tin-moi.rss` (đúng feed cũ, chỉ giữ ~4 tiếng bài) hay đổi sang `/144/chung-khoan.rss` (giữ ~2 ngày, chỉ có tin chứng khoán) | Anh | Đang dùng `tin-moi`. Khi `/api/sync` chạy 5 phút một lần thì không sót bài |
+| 8 | Quyết định: xoá hay giữ 3 sheet cũ `International`, `IntlFinance`, `IntlTech` | Anh | Không còn dùng từ khi bỏ nguồn nước ngoài |
 
-## Kết quả kiểm thử (03/11)
+> Lưu ý khi bình luận trực tiếp vào file này: trình soạn thảo bảng anh đang dùng từng không ghi bình luận xuống đĩa. Lưu xong anh mở lại file để chắc chắn, và mở lại bản mới trước khi sửa tiếp.
 
-| Kiểm thử | Cách làm | Kết quả |
-|---|---|---|
-| Unit test các hàm quyết định | `npm test` (16 test: đọc giờ VN, nhịp vàng, chọn dòng cắt, gom khoảng xoá, chọn bài chờ tóm tắt, chuyển trạng thái, chọn bài gửi xuống trang) | ✅ 16/16 |
-| Type-check, lint, build | `tsc --noEmit`, `npm run lint`, `npm run build` | ✅ (lint còn đúng 1 cảnh báo `<img>` có từ trước) |
-| Chạy cả luồng sync trên bản sao sheet thật | Nhân bản `Sheet1`, `Finance`, `GoldPrice` thành tab `_test_...`, chạy 5 lượt bằng RSS + summarizer Python thật, đối chiếu từng dòng | ✅ 0 bài trùng, dòng cũ giữ nguyên, 11/11 bài mới tóm tắt xong |
-| Cắt tỉa giữ bài đã Lưu | Đánh dấu Lưu 3 bài cũ nhất trên tab tạm, cắt về 4.800 | ✅ 3/3 bài đã Lưu được giữ, xoá đúng bài cũ nhất |
-| Trang web | `next start` bản mới và bản cũ (HEAD), cùng dữ liệu; gọi server action "tải thêm" qua HTTP | ✅ 600 bài lúc mở trang; action trả đủ 5.000 bài; từ chối yêu cầu đọc sheet ngoài danh sách |
-| Dọn dẹp | Xoá tab tạm, tắt server thử, gỡ bản cũ | ✅ File chỉ còn 6 sheet gốc |
-| **Chưa kiểm** | Bấm nút "Tải thêm" trên trình duyệt thật; thời gian chạy thật trên runner GitHub; cache pip/nltk | ⏳ Sau khi anh push |
+## 2. Quyết định đã chốt
 
-## Việc tiếp theo cần anh
-
-| Thứ tự | Việc | Ghi chú |
-|:---:|---|---|
-| 1 | Review và commit/push v6 | 9 file sửa + 4 file mới (`sync-plan.ts`, `news-feed.ts` và 2 file test). Lượt chạy đầu sẽ thêm tiêu đề `summaryStatus` vào ô I1 của 2 sheet tin |
-| 2 | Mở trang sau khi Vercel deploy, đi tới trang cuối và bấm **"Tải thêm bài cũ hơn"** | Tôi chưa kiểm được trên trình duyệt |
-| 3 | Sửa trigger cron-job.org (mục 2) | Làm sau bước 1 để giá vàng không bị lấy theo nhịp 5 phút |
-| 4 | Quyết định mục 8, 9, 11 | Nguồn thay cho Vietstock / Báo Đầu tư; có làm `GoldDaily` không; có chuyển lượt nhanh sang Vercel không |
-| 5 | Các tham số đang dùng mặc định | Nhịp giá vàng **30 phút**; trần **5.000** bài/sheet; **300** bài/tab lúc mở trang; trang cache **60s**. Đổi số nào thì báo tôi |
-
-## Số đo làm căn cứ
-
-| Chỉ số | Giá trị | Nguồn |
-|---|---|---|
-| Khoảng cách giữa các lượt sync (60 lượt, 22/10–02/11) | 133–430 phút, tất cả do `schedule` | API GitHub |
-| Lượt `workflow_dispatch` | 20, lượt cuối 24/9 | API GitHub |
-| Chờ runner nhận việc | 2–3s, máy chủ không quá tải | API GitHub (25 lượt) |
-| Dựng máy + cài thư viện | trung vị ~39s | API GitHub (25 lượt) |
-| Bước `Run News Sync` (code cũ) | trung vị 88s (61–141s) | API GitHub (25 lượt) |
-| Lượt sync v6 tại máy (11 bài mới, có tóm tắt) | 20,4s; tin lên sheet sau 4,1s | Chạy trên bản sao sheet |
-| BTMC từ máy anh (trong nước) | 26ms–2,4s | Đo 03/11 |
-| Timeout kết nối mặc định của `fetch` (Node) | ~10–11s | Đo tại máy |
-| Thời gian tải 7 feed RSS | 10–750ms, không feed nào có ETag/Last-Modified | Đo 03/11 |
-| Trang web (bản cũ → bản mới) | 9,6MB → 1,0MB; TTFB ~1,7s → ~0,02s | `next start`, cùng dữ liệu |
-| `GoldPrice` | ~10.300 dòng, từ 17/4, 20–30 dòng/lần lấy | Đo tại máy, chỉ đọc |
-| Tổng ô lưới cả file | ~549.000 ô = 5,5% giới hạn 10 triệu ô | Đo tại máy, chỉ đọc |
-
-## Các nhận định đã kiểm và loại bỏ
-
-| Nhận định | Lý do loại |
+| Chủ đề | Quyết định |
 |---|---|
-| "Trigger ngoài đã xử lý xong" | Không có lượt `workflow_dispatch` nào kể từ 24/9 |
-| "Cài đặt môi trường mất 2–4 phút" | Trung vị ~39s trên 25 lượt |
-| "Concurrency đang âm thầm bỏ các lượt" | Từ 21/9 chỉ có 1 lượt bị huỷ |
-| "5.000 dòng tin làm chậm việc quét tin" | Đọc mất 1–1,7s; 5.000 dòng chỉ làm chậm trang web, đã sửa ở mục 7 |
-| "Bỏ cache-buster giúp quét nhanh hơn rõ rệt" | Feed chỉ mất 10–750ms dù có hay không có `?t=`; lợi ích chính là bớt tải cho báo |
+| Lưu trữ | Giữ Google Sheets, không chuyển sang Postgres (02/11) |
+| Tin tức | Chỉ báo tiếng Việt, 4 chuyên mục. Mỗi sheet giữ tối đa **5.000 bài** (cắt khi vượt 5.100), **không bao giờ xoá bài đã Lưu** |
+| Nguồn tài chính | Bỏ Báo Đầu tư (feed rỗng); Vietstock chuyển sang đường dẫn RSS mới (06/11) |
+| Lấy tin | Lượt nhanh chạy trên **Vercel `/api/sync`**, cron-job.org gọi mỗi 5 phút. GitHub Actions lo tóm tắt, giá vàng, dọn trùng, cắt bớt và lấy tin dự phòng (06/11) |
+| Tóm tắt | Tách khỏi bước lấy tin: bài lên sheet ngay với tóm tắt RSS, Python tóm tắt sau |
+| Giá vàng: lưu | Giữ **toàn bộ lịch sử**. Lấy ở **mọi lượt sync**. Cùng ngày, giá không đổi thì **ghi đè giờ**; giá đổi hoặc sang ngày mới thì **thêm dòng** (06/11). Không cần sheet `GoldDaily` |
+| Giá vàng: hiển thị | Ngày quá khứ hiện **giá chốt cuối ngày**. Khung **bảng theo giờ** cho hôm nay và 7 ngày gần nhất. **Bỏ tab "Vàng Trong Ngày"** (06/11) |
+| Trang web | Cache 60s; lúc mở trang chỉ gửi 300 bài mới nhất mỗi tab + mọi bài đã Lưu, có nút "Tải thêm bài cũ hơn" |
+| Không áp dụng | Tải RSS có điều kiện (ETag): không feed nào hỗ trợ |
+
+## 3. Tài liệu kỹ thuật
+
+### 3.1 Nguồn tin
+
+| Mục | Nguồn | Sheet |
+|---|---|---|
+| Tin Chung | VNExpress ×4 + Tuổi Trẻ ×4, mỗi báo 4 chuyên mục *Thời sự · Thế giới · Kinh doanh · Khoa học công nghệ* | `Sheet1` |
+| Tài Chính | Vietstock `https://vietstock.vn/0/tin-moi.rss` (danh sách feed chính thức: vietstock.vn/rss), CafeF `thi-truong-chung-khoan.rss` | `Finance` |
+
+Tin Chung dùng feed theo chuyên mục thay vì feed "tin mới nhất". Lý do: feed tổng hợp của cả hai báo phần lớn là giải trí, thể thao, đời sống.
+
+### 3.2 Luồng sync
+
+```
+cron-job.org ──(5 phút)──▶ Vercel /api/sync ──┐  đọc RSS, thêm bài (cột I = PENDING)
+                                              ▼
+GitHub Actions ──────────────────────▶ Google Sheets ◀── trang Next.js (cache 60s)
+  lấy tin dự phòng · tóm tắt bài PENDING · giá vàng · dọn trùng · cắt bớt
+```
+
+1. **Lấy tin** (`src/lib/news-sync.ts`): đọc RSS song song, bỏ bài đã có (theo URL), **append** bài mới vào cuối sheet kèm tóm tắt và ảnh từ RSS, cột I = `PENDING`. Không có bài mới thì chỉ cập nhật heartbeat ở ô Z1.
+2. **Tóm tắt** (chỉ chạy trên GitHub): Python xử lý các bài `PENDING`/`RETRY`, mới nhất trước, tối đa 120 bài/sheet/lượt. Kết quả ghi đúng ô B/E/I theo URL. Hỏng lần 1 thành `RETRY`, hỏng lần 2 thành `FAILED` (giữ tóm tắt RSS). Dòng cũ có cột I trống thì không tóm tắt lại.
+3. **Dọn trùng + cắt bớt**: xoá bản trùng URL (khi Vercel và GitHub cùng thêm một bài). Sau đó, nếu vượt 5.100 bài thì xoá bài cũ nhất về 5.000, giữ bài đã Lưu.
+4. **Giá vàng** chạy song song với phần tin (mục 3.3).
+5. Bước nào lỗi thì workflow báo đỏ, nhưng phần đã thành công vẫn được ghi.
+
+Thứ tự dòng trên sheet tin không còn là mới nhất trước; trang web tự sắp xếp theo timestamp.
+
+### 3.3 Giá vàng
+
+| Nguồn | Mặt hàng | Ghi chú |
+|---|---|---|
+| BTMC (`api.btmc.vn`) | 10 mặt hàng: vàng miếng SJC, nhẫn tròn trơn VRTL, bản vàng Đắc Lộc, đồng xu, trang sức, nguyên liệu | API trả ~1000 dòng kèm cả bạc; chỉ dòng có `karat` mới là vàng |
+| 24h.com.vn (dự phòng) | Vàng miếng SJC, vàng miếng VRTL | Chỉ dùng khi không gọi được BTMC |
+| PNJ (`edge-api.pnj.io`) | 20 mặt hàng: nhẫn trơn PNJ 999.9, vàng miếng SJC, nữ trang 8K–24K | Giá niêm yết bằng nghìn đồng, đã nhân 1000 |
+
+- **BTMC chỉ truy cập được từ trong nước.** Từ runner GitHub, kết nối luôn timeout, nên sync tự chuyển sang 24h.com.vn. Phải dùng dòng `BTMC SJC` (`bao_tin_minh_chau`), **không** dùng dòng `SJC`: dòng `SJC` là giá do công ty SJC tự niêm yết, lệch 40–60 nghìn. Nguồn dự phòng chỉ bù được vàng miếng SJC và VRTL. Mỗi lời gọi BTMC thử 1 lần/giao thức, tối đa 6 giây.
+- **Nguồn bắt buộc / tuỳ chọn:** thiếu PNJ thì workflow báo đỏ. Thiếu BTMC chỉ cảnh báo, và lý do được ghi vào ô **Y1** của `GoldPrice`.
+- **Ghi theo thay đổi** (`planGoldWrites` trong `src/lib/sync-plan.ts`): cùng ngày, giá mua/bán không đổi thì ghi đè cột A (giờ) và F–H (giá thế giới, timestamp, tỷ giá) lên dòng mới nhất của mặt hàng. Giá đổi hoặc sang ngày mới thì thêm dòng. Thực tế chỉ cần 2–44 dòng/ngày.
+- **Lần lấy mới nhất** = các dòng có mốc giờ lớn nhất, không phải dòng cuối sheet.
+- **Giá thế giới quy về VNĐ/chỉ**: `USD/oz × (3,75 / 31,1035) × tỷ giá`. Tỷ giá lấy từ Vietcombank (giá bán ra), dự phòng open.er-api.com, và được lưu ở cột H tại thời điểm lấy giá. Giá trong nước tính theo **chỉ (3,75g)**.
+- **Mặt hàng tiêu biểu** (`BRAND_REPRESENTATIVE` trong `gold-price.ts`): SJC: `VÀNG MIẾNG SJC`, BTMC: `VÀNG MIẾNG VRTL`, PNJ: `Nhẫn Trơn PNJ 999.9`.
+- **Giao diện tab Giá Vàng**, từ trên xuống:
+  1. Khung "Biến động trong ngày": bảng theo giờ, 7 ngày, giá mua/bán, ▲▼ khi đổi. Dữ liệu gộp sẵn ở `src/lib/gold-moves.ts`.
+  2. Biểu đồ lịch sử: giá chốt cuối ngày của 3 nhà, cộng giá thế giới vẽ nét đứt.
+  3. Bảng giá hiện tại theo từng nhà.
+
+Cột của sheet `GoldPrice`:
+
+| A | B | C | D | E | F | G | H |
+|---|---|---|---|---|---|---|---|
+| thời điểm (`HH:MM:SS D/M/YYYY`) | hãng | tên | mua | bán | USD/oz | timestamp | tỷ giá USD/VND |
+
+Ô Y1 là nhật ký lỗi nguồn, ô Z1 là heartbeat.
+
+### 3.4 Cấu trúc sheet tin (`Sheet1`, `Finance`)
+
+| A | B | C | D | E | F | G | H | I |
+|---|---|---|---|---|---|---|---|---|
+| tiêu đề | tóm tắt | URL | ngày | ảnh | timestamp | đã ẩn | đã lưu | trạng thái tóm tắt |
+
+Ô Z1 là heartbeat. Ghi tin bằng `values.append` (tự nới lưới), ghi theo lô 1.000 dòng.
+
+### 3.5 Tham số
+
+| Tham số | Giá trị | Nơi đặt |
+|---|---|---|
+| `MAX_ITEMS_PER_SHEET` / `TRIM_SLACK` | 5.000 / 100 | `src/scripts/sync-news.ts` |
+| `MAX_SUMMARIES_PER_RUN` | 120 bài/sheet/lượt | `src/scripts/sync-news.ts` |
+| `GOLD_MIN_INTERVAL_MINUTES` | 0 = lấy ở mọi lượt | biến môi trường |
+| `SUMMARIZER_TIMEOUT_MS` / `SUMMARIZER_CONCURRENCY` | 30 giây / 4 bài song song | `src/lib/aggregator.ts` |
+| Timeout RSS / giá vàng / BTMC | 15s / 15s / 6s | `aggregator.ts`, `gold-price.ts` |
+| `INITIAL_NEWS_LIMIT` | 300 bài/tab lúc mở trang | `src/lib/news-feed.ts` |
+| Cache trang | 60 giây (`revalidate`) | `src/app/page.tsx` |
+| Khung biến động | 7 ngày (`MOVE_DAYS`) | `src/lib/gold-moves.ts` |
+
+Lệnh hữu ích:
+- `npm run sync:local -- --today`: chỉ lấy bài đăng trong hôm nay.
+- `--force-gold`: lấy giá vàng bỏ qua nhịp.
+- `BTMC_API_HOST=10.255.255.1`: giả lập BTMC timeout như trên runner GitHub.
+- `SYNC_SHEET_GENERAL` / `SYNC_SHEET_FINANCE` / `SYNC_SHEET_GOLD`: trỏ sync sang tab tạm để chạy thử mà không đụng dữ liệu thật.
+
+### 3.6 Cấu hình `/api/sync` trên Vercel
+
+`SYNC_SECRET` là mật khẩu riêng giữa cron-job.org và route `/api/sync`. Không có nó, ai biết đường dẫn cũng gọi được route để bắt server đọc RSS và ghi sheet. Route so khớp **chính xác** header `Authorization: Bearer <khoá>`. Thiếu biến này, hoặc khoá ngắn hơn 24 ký tự, thì route trả `503` cho mọi lời gọi.
+
+**Bước 1. Tạo khoá (tại máy anh)**
+
+Mở PowerShell hoặc terminal trong VS Code, chạy:
+
+```powershell
+node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"
+```
+
+Kết quả là một chuỗi 32 ký tự gồm chữ, số, `-` và `_`, ví dụ dạng `Xk3_9aQ...`. Lưu chuỗi này vào trình quản lý mật khẩu, vì bước 4 còn cần dùng lại. Nếu bật **Sensitive** ở bước 2 thì Vercel sẽ không cho xem lại khoá.
+
+- Không dán khoá vào code, file `.env` trong repo, chat hay commit message.
+- Lỡ làm lộ khoá thì tạo khoá mới, sửa lại ở bước 2 và bước 4. Khoá cũ hết hiệu lực ngay sau khi Vercel deploy lại.
+
+**Bước 2. Thêm biến trên Vercel**
+
+1. Vào https://vercel.com, đăng nhập, rồi bấm vào project **tin-tuc-app** trong danh sách.
+2. Chọn tab **Settings** ở thanh trên cùng, rồi mục **Environment Variables** ở menu bên trái.
+3. Điền form thêm biến:
+   - **Key:** `SYNC_SECRET`. Gõ đúng chữ hoa, không có dấu cách.
+   - **Value:** dán khoá ở bước 1. Kiểm tra không có dấu cách hay xuống dòng ở đầu hoặc cuối, vì chỉ lệch một ký tự là route trả `401`.
+   - **Environments:** chỉ tick **Production**. Bản Preview không cần, vì không có cron gọi; ở đó route sẽ trả `503`, như vậy là đúng.
+   - **Sensitive:** nên bật. Khi bật, giá trị bị ẩn vĩnh viễn và chỉ sửa được bằng cách ghi đè.
+4. Bấm **Save**. Danh sách biến bên dưới sẽ có thêm `SYNC_SECRET`. Các biến `GOOGLE_*` đã có sẵn, không cần đụng tới.
+
+**Bước 3. Cho bản deploy nhận biến**
+
+Biến mới chỉ có tác dụng với **lần deploy sau khi lưu**. Bản đang chạy chưa đọc được biến này.
+
+- **Nếu chưa push code 06/11:** không cần làm gì. Lần push tới, Vercel tự build và nhận luôn biến. Đây là lý do việc số 1 ở mục 1 nằm trước việc commit.
+- **Nếu đã push rồi:** vào tab **Deployments**, tìm dòng trên cùng có nhãn **Production**, bấm nút **⋯** ở cuối dòng, chọn **Redeploy**, rồi bấm **Redeploy** để xác nhận. Đợi trạng thái chuyển sang **Ready**, thường mất 1–2 phút.
+
+**Bước 4. Kiểm tra biến đã có tác dụng**
+
+Lấy tên miền ở tab **Overview** của project, mục **Domains**, có dạng `xxx.vercel.app`. Chạy lệnh dưới đây trong PowerShell. Lệnh **không gửi khoá** nên không lộ gì:
+
+```powershell
+curl.exe -s -o NUL -w "%{http_code}`n" https://<tên-miền>/api/sync
+```
+
+| Kết quả | Ý nghĩa | Xử lý |
+|---|---|---|
+| `401` | Đúng. Biến đã có tác dụng, route từ chối lời gọi không có khoá | Sang bước 5 |
+| `503` | Bản deploy chưa có biến, hoặc khoá ngắn hơn 24 ký tự | Làm lại bước 3 (Redeploy), kiểm tra Key đúng `SYNC_SECRET` và đã tick Production |
+| `404` | Bản deploy chưa có code 06/11 | Push code rồi đợi deploy xong |
+
+**Bước 5. Tạo job trên cron-job.org**
+
+1. Đăng nhập https://console.cron-job.org, bấm **Create cronjob**.
+2. Tab **Common**:
+   - **Title:** `tin-tuc /api/sync`
+   - **URL:** `https://<tên-miền>/api/sync`
+   - **Execution schedule:** chọn **Every 5 minutes**
+3. Tab **Advanced**:
+   - **Request method:** `GET`
+   - **Headers:** bấm **Add**, điền Key = `Authorization`, Value = `Bearer <khoá>`. Chữ `Bearer` viết hoa chữ B, theo sau là **đúng một dấu cách**, rồi đến khoá.
+   - **Timeout:** đặt 30 giây nếu có tuỳ chọn này, vì route được phép chạy tối đa 30 giây.
+4. Bấm **Test run** trước khi lưu. Phải nhận `200` với nội dung dạng `{"ok":true,"results":[{"name":"...","added":0},...],"ms":...}`. `added` bằng 0 là bình thường khi không có bài mới.
+5. Bấm **Create**. Trong tab **Notifications**, nên bật báo lỗi qua email khi job thất bại.
+
+| Mã | Ý nghĩa |
+|---|---|
+| 200 | Xong; `results[].added` là số bài mới mỗi mục |
+| 401 | Sai hoặc thiếu header `Authorization`: kiểm tra chữ `Bearer `, dấu cách, khoá có bị thừa ký tự không |
+| 503 | Server chưa có `SYNC_SECRET` (hoặc ngắn hơn 24 ký tự), mọi lời gọi đều bị từ chối |
+| 500 | Một mục lỗi (phần thành công vẫn đã ghi); xem Vercel → tab **Logs**, lọc theo `/api/sync` |
+
+| Mã | Ý nghĩa |
+|---|---|
+| 200 | Xong; `results[].added` là số bài mới mỗi mục |
+| 401 | Sai hoặc thiếu header `Authorization` |
+| 503 | Server chưa có `SYNC_SECRET` (hoặc ngắn hơn 24 ký tự), mọi lời gọi đều bị từ chối |
+| 500 | Một mục lỗi (phần thành công vẫn đã ghi); xem Logs của Vercel |
+
+### 3.7 Kích hoạt GitHub Actions đúng nhịp
+
+GitHub hoãn lịch `schedule` của repo công khai rất nặng (đo được 2–8 tiếng/lượt), còn `workflow_dispatch` gọi qua API thì không bị hoãn. Lịch `*/10` trong `sync.yml` chỉ để dự phòng. Workflow để `cancel-in-progress: false`, nên lượt mới xếp hàng chờ chứ không giết lượt đang ghi.
+
+1. **Token:** GitHub → Settings → Developer settings → Fine-grained tokens. Chỉ chọn repo `tin-tuc-app`, chỉ bật quyền `Actions` = Read and write.
+2. **Thử tại máy:** `GITHUB_TOKEN=github_pat_xxx ./scripts/trigger-sync.sh`. Script báo rõ từng mã lỗi: 401 token sai, 403 thiếu quyền, 404 sai repo, 422 sai nhánh.
+3. **cron-job.org:**
+   - URL: `https://api.github.com/repos/Jobox66/tin-tuc-app/actions/workflows/sync.yml/dispatches`
+   - Method `POST`, mỗi 10–15 phút
+   - Headers: `Authorization: Bearer <PAT>` và `Accept: application/vnd.github+json`
+   - Body: `{"ref":"master"}`
+   - Thành công là HTTP **204**.
+4. **Hoặc Google Apps Script** (Time-driven → Every 10 minutes). Token lưu ở Script properties với khoá `GH_TOKEN`, không viết vào code:
+
+```javascript
+function triggerSync() {
+  const res = UrlFetchApp.fetch(
+    'https://api.github.com/repos/Jobox66/tin-tuc-app/actions/workflows/sync.yml/dispatches',
+    {
+      method: 'post',
+      contentType: 'application/json',
+      headers: {
+        Authorization: 'Bearer ' + PropertiesService.getScriptProperties().getProperty('GH_TOKEN'),
+        Accept: 'application/vnd.github+json',
+      },
+      payload: JSON.stringify({ ref: 'master' }),
+      muteHttpExceptions: true,
+    }
+  );
+  console.log(res.getResponseCode()); // 204 = OK
+}
+```
+
+Secrets cần có trên GitHub: `GOOGLE_SHEET_ID`, `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`.

@@ -52,17 +52,18 @@ export const GENERAL_SOURCES: NewsSource[] = [
 
 export const FINANCE_SOURCES: NewsSource[] = [
     {
+        // Duong dan cu /rss/tin-moi-nhat.rss nay tra trang HTML (chet tu truoc
+        // 02/11/2026). Danh sach feed chinh thuc: https://vietstock.vn/rss
+        // Feed nay chi giu 30 bai (~4 tieng) - can sync deu tay de khong sot bai.
         name: 'Vietstock - Tin mới nhất',
-        url: 'https://vietstock.vn/rss/tin-moi-nhat.rss',
+        url: 'https://vietstock.vn/0/tin-moi.rss',
     },
     {
         name: 'CafeF - Thị trường chứng khoán',
         url: 'https://cafef.vn/thi-truong-chung-khoan.rss',
     },
-    {
-        name: 'Báo Đầu tư - Chứng khoán',
-        url: 'https://baodautu.vn/chung-khoan/rss',
-    }
+    // Bao Dau tu (baodautu.vn/chung-khoan/rss) da bo theo y anh 06/11/2026:
+    // feed tra ve rong.
 ];
 
 interface Candidate {

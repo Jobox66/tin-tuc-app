@@ -80,6 +80,39 @@ export function planTrim(rows: NewsRowRef[], maxRows: number, slack: number = 0)
 }
 
 /**
+ * Dong trung URL can xoa. Trung xay ra khi Vercel (/api/sync) va GitHub Actions
+ * cung them mot bai trong cung vai giay. Giu lai MOT dong moi URL, uu tien:
+ * bai da Luu > da tom tat xong (DONE) > dong o tren.
+ */
+export function planDuplicateRemoval(rows: NewsRowRef[]): number[] {
+    const groups = new Map<string, NewsRowRef[]>();
+    for (const r of rows) {
+        const list = groups.get(r.url);
+        if (list) list.push(r); else groups.set(r.url, [r]);
+    }
+    const rank = (r: NewsRowRef) => [r.isSaved ? 0 : 1, r.status === SUMMARY_DONE ? 0 : 1, r.row];
+    const better = (a: NewsRowRef, b: NewsRowRef) => {
+        const [x, y] = [rank(a), rank(b)];
+        for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] - y[i];
+        return 0;
+    };
+    const out: number[] = [];
+    for (const list of groups.values()) {
+        if (list.length < 2) continue;
+        const [, ...drop] = [...list].sort(better);
+        out.push(...drop.map(r => r.row));
+    }
+    return out;
+}
+
+/** Don trung URL roi cat ve tran. Tra ve so dong that can xoa. */
+export function planCleanup(rows: NewsRowRef[], maxRows: number, slack: number = 0): number[] {
+    const dups = new Set(planDuplicateRemoval(rows));
+    const rest = rows.filter(r => !dups.has(r.row));
+    return [...dups, ...planTrim(rest, maxRows, slack)];
+}
+
+/**
  * Gom so dong thanh cac khoang lien tiep, sap xep TU DUOI LEN de khi gui
  * nhieu lenh deleteDimension trong mot batchUpdate thi viec xoa khoang duoi
  * khong lam lech chi so cua khoang tren.
@@ -103,6 +136,64 @@ export function selectPendingSummaries(rows: NewsRowRef[], limit: number): NewsR
         .filter(r => r.url && (r.status === SUMMARY_PENDING || r.status === SUMMARY_RETRY))
         .sort((a, b) => b.timestamp - a.timestamp)
         .slice(0, Math.max(0, limit));
+}
+
+// ===== Ghi gia vang THEO THAY DOI (quyet dinh cua anh, 06/11/2026) =====
+// Gia khong doi so voi lan ghi gan nhat cua mat hang trong CUNG NGAY -> ghi de
+// moc gio (hien gio moi nhat). Gia doi, hoac sang ngay moi -> them dong.
+// Sang ngay moi luon them dong de moi ngay co it nhat mot dong: neu ghi de qua
+// ngay thi ngay hom truoc mat diem tren bieu do.
+
+/** "08:28:07 23/9/2026" -> "23/9/2026" */
+export function dayOfVnDateTime(text: string): string {
+    return text.split(/\s+/).find(p => p.includes('/')) || '';
+}
+
+/** Mot dong da co trong sheet GoldPrice (chi cac cot can de so sanh) */
+export interface GoldTailRow {
+    row: number;      // so dong that tren sheet
+    date: string;     // cot A - moc gio lan cuoi thay muc gia nay
+    brand: string;
+    name: string;
+    buy: string;
+    sell: string;
+}
+
+export interface GoldWriteItem {
+    brand: string;
+    name: string;
+    buy: string | number;
+    sell: string | number;
+}
+
+const samePrice = (a: string | number, b: string | number) =>
+    (parseInt(String(a).replace(/\D/g, ''), 10) || 0) === (parseInt(String(b).replace(/\D/g, ''), 10) || 0);
+
+export function planGoldWrites<T extends GoldWriteItem>(
+    tail: GoldTailRow[],
+    items: T[],
+    fetchTime: string
+): { overwrite: { row: number; item: T }[]; append: T[] } {
+    // Dong MOI NHAT cua tung mat hang (so dong lon nhat)
+    const latest = new Map<string, GoldTailRow>();
+    for (const r of tail) {
+        const key = `${r.brand}|${r.name}`;
+        const cur = latest.get(key);
+        if (!cur || r.row > cur.row) latest.set(key, r);
+    }
+
+    const today = dayOfVnDateTime(fetchTime);
+    const overwrite: { row: number; item: T }[] = [];
+    const append: T[] = [];
+    for (const item of items) {
+        const prev = latest.get(`${item.brand}|${item.name}`);
+        if (prev && dayOfVnDateTime(prev.date) === today && samePrice(prev.buy, item.buy) && samePrice(prev.sell, item.sell)) {
+            overwrite.push({ row: prev.row, item });
+        } else {
+            append.push(item);
+        }
+    }
+    return { overwrite, append };
 }
 
 /** Trang thai tiep theo sau mot lan tom tat */

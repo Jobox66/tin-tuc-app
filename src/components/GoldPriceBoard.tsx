@@ -1,14 +1,16 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import type { GoldPriceRow, GoldSeries, GoldWorldPoint } from "@/lib/google-sheets";
+import type { GoldPriceRow, GoldSeries, GoldWorldPoint, GoldDayMoves } from "@/lib/google-sheets";
 import { GOLD_TYPE_LABELS, classifyGoldType, BRAND_REPRESENTATIVE, BRAND_SECTIONS, dayToTimestamp } from "@/lib/gold-price";
 import GoldPriceChart, { ChartSeries } from "./GoldPriceChart";
+import GoldDayMovesPanel from "./GoldDayMovesPanel";
 
 interface GoldPriceBoardProps {
     prices: GoldPriceRow[];
     series?: GoldSeries[];
     world?: GoldWorldPoint[];
+    moves?: GoldDayMoves[];
 }
 
 type RangeKey = 7 | 30 | 90 | 0;
@@ -34,7 +36,7 @@ const BRAND_COLORS: Record<string, ChartSeries["color"]> = {
 const toNumber = (v: string | number) => parseInt(String(v).replace(/\D/g, ""), 10) || 0;
 const fmt = (v: number) => (v > 0 ? v.toLocaleString("en-US") : "—");
 
-export default function GoldPriceBoard({ prices, series = [], world = [] }: GoldPriceBoardProps) {
+export default function GoldPriceBoard({ prices, series = [], world = [], moves = [] }: GoldPriceBoardProps) {
     const [range, setRange] = useState<RangeKey>(30);
 
     // Trục ngày dùng chung cho mọi chuỗi.
@@ -221,7 +223,10 @@ export default function GoldPriceBoard({ prices, series = [], world = [] }: Gold
                 </div>
             </div>
 
-            {/* ===== Biến động lịch sử ===== */}
+            {/* ===== Biến động trong ngày (7 ngày gần nhất) ===== */}
+            <GoldDayMovesPanel moves={moves} />
+
+            {/* ===== Biến động lịch sử: giá chốt cuối mỗi ngày ===== */}
             <section className="mb-12">
                 <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
                     <div>

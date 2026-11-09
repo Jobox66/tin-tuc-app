@@ -80,7 +80,7 @@ export default async function Home() {
           initialGoldPrices={goldRes.prices}
           initialGoldSeries={goldRes.series}
           initialGoldWorld={goldRes.world}
-          initialGoldIntraday={goldRes.intraday}
+          initialGoldMoves={goldRes.moves}
         />
       </main>
 

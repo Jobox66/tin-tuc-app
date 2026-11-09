@@ -1,23 +1,21 @@
 "use client";
 
-import type { NewsItem, GoldPriceRow, GoldSeries, GoldWorldPoint, GoldIntradaySnapshot } from "@/lib/google-sheets";
+import type { NewsItem, GoldPriceRow, GoldSeries, GoldWorldPoint, GoldDayMoves } from "@/lib/google-sheets";
 import { useState, useTransition, useMemo } from "react";
 import { updateArticleStatus, loadAllNews } from "@/app/actions";
 import GoldPriceBoard from "./GoldPriceBoard";
-import GoldIntradayTable from "./GoldIntradayTable";
 
 type CategoryKey = "general" | "finance";
-type TabKey = CategoryKey | "gold" | "goldIntraday";
+type TabKey = CategoryKey | "gold";
 
 const TAB_LABELS: Record<TabKey, string> = {
     general: "Tin Chung",
     finance: "Tài Chính",
     gold: "Giá Vàng",
-    goldIntraday: "Vàng Trong Ngày",
 };
 
 /** Tab không phải tin bài - không có phân trang, lọc, lưu/ẩn */
-const NON_NEWS_TABS: TabKey[] = ["gold", "goldIntraday"];
+const NON_NEWS_TABS: TabKey[] = ["gold"];
 const isNewsTab = (tab: TabKey) => !NON_NEWS_TABS.includes(tab);
 
 const CATEGORY_SHEETS: Record<CategoryKey, string> = {
@@ -59,7 +57,7 @@ interface NewsFeedProps {
     initialGoldPrices: GoldPriceRow[];
     initialGoldSeries?: GoldSeries[];
     initialGoldWorld?: GoldWorldPoint[];
-    initialGoldIntraday?: GoldIntradaySnapshot[];
+    initialGoldMoves?: GoldDayMoves[];
     /** Con bai cu hon chua gui xuong (trang chi gui phan dau de nhe) */
     initialHasMore?: Record<CategoryKey, boolean>;
 }
@@ -70,7 +68,7 @@ export default function NewsFeed({
     initialGoldPrices,
     initialGoldSeries = [],
     initialGoldWorld = [],
-    initialGoldIntraday = [],
+    initialGoldMoves = [],
     initialHasMore = { general: false, finance: false },
 }: NewsFeedProps) {
     const [activeTab, setActiveTab] = useState<TabKey>(
@@ -239,9 +237,7 @@ export default function NewsFeed({
             </div>
 
             {activeTab === "gold" ? (
-                <GoldPriceBoard prices={initialGoldPrices} series={initialGoldSeries} world={initialGoldWorld} />
-            ) : activeTab === "goldIntraday" ? (
-                <GoldIntradayTable intraday={initialGoldIntraday} />
+                <GoldPriceBoard prices={initialGoldPrices} series={initialGoldSeries} world={initialGoldWorld} moves={initialGoldMoves} />
             ) : news.length === 0 ? (
                 <div className="rounded-2xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 p-20 text-center bg-white/50 dark:bg-zinc-900/50">
                     <div className="w-16 h-16 bg-zinc-100 dark:bg-zinc-800 rounded-full flex items-center justify-center mx-auto mb-4 text-zinc-400">

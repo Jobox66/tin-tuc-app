@@ -1,12 +1,13 @@
-import { collectNewArticles, summarizeWithPython, runPool, SUMMARIZER_CONCURRENCY, GENERAL_SOURCES, FINANCE_SOURCES, NewsSource } from '../lib/aggregator';
+import { summarizeWithPython, runPool, SUMMARIZER_CONCURRENCY } from '../lib/aggregator';
+import { CATEGORIES, SHEETS, Category, collectCategory } from '../lib/news-sync';
 import {
-    appendNewsToSheet, readNewsRowRefs, updateNewsSummaries, trimNewsSheet,
-    updateHeartbeatOnly, saveGoldPricesToSheets, getGoldLastFetchEpoch, SummaryUpdate,
+    readNewsRowRefs, updateNewsSummaries, trimNewsSheet,
+    saveGoldPricesToSheets, getGoldLastFetchEpoch, SummaryUpdate,
 } from '../lib/google-sheets';
 import { fetchGoldPrices, deadSources, degradedSources } from '../lib/gold-price';
 import { isGoldFetchDue, selectPendingSummaries, nextSummaryStatus } from '../lib/sync-plan';
 
-const SYNC_VERSION = "2026-11-03-v6";
+const SYNC_VERSION = "2026-11-06-v6.1";
 
 // Tran so bai giu lai moi sheet. Chi cat khi vuot them TRIM_SLACK bai de khong
 // phai xoa dong lat nhat o moi luot. Bai da Luu khong bao gio bi cat.
@@ -18,18 +19,12 @@ const TRIM_SLACK = 100;
 // keo mot luot ra qua timeout cua workflow.
 const MAX_SUMMARIES_PER_RUN = 120;
 
-// Nhip lay gia vang, TACH KHOI nhip quet tin. Moi lan lay them ~22 dong vao
-// GoldPrice va KHONG BAO GIO xoa (giu lich su) - neu lay theo nhip 5 phut cua
-// tin thi file cham tran 10 trieu o sau ~2 thang. --force-gold de bo qua.
-const GOLD_MIN_INTERVAL_MIN = Number(process.env.GOLD_MIN_INTERVAL_MINUTES ?? 30);
+// Nhip lay gia vang. Mac dinh 0 = LUOT NAO CUNG LAY (anh muon quet nhanh, 06/11).
+// An toan ve dung luong vi gia vang gio ghi THEO THAY DOI: gia khong doi thi chi
+// ghi de moc gio, khong them dong (xem planGoldWrites). Dat bien moi truong
+// GOLD_MIN_INTERVAL_MINUTES > 0 neu muon thua lai. --force-gold de bo qua nhip.
+const GOLD_MIN_INTERVAL_MIN = Number(process.env.GOLD_MIN_INTERVAL_MINUTES ?? 0);
 const FORCE_GOLD = process.argv.includes('--force-gold');
-
-// Cho phep tro sang sheet tam de chay thu ca luong ma khong dung du lieu that.
-const SHEETS = {
-    general: process.env.SYNC_SHEET_GENERAL || 'Sheet1',
-    finance: process.env.SYNC_SHEET_FINANCE || 'Finance',
-    gold: process.env.SYNC_SHEET_GOLD || 'GoldPrice',
-};
 
 // Chay `npm run sync:local -- --today` de backfill: chi lay bai dang trong ngay.
 // Khong co co nay thi lay TAT CA bai chua co trong sheet.
@@ -75,29 +70,6 @@ function validateEnv() {
 }
 
 // ============= MAIN SYNC LOGIC =============
-interface Category { name: string; sources: NewsSource[]; sheet: string }
-
-/** LUOT NHANH: doc RSS, them ngay bai moi vao sheet (tom tat tu RSS, cot I = PENDING) */
-async function collectCategory(cat: Category): Promise<number> {
-    console.log(`\n🚀 [v${SYNC_VERSION}] ${cat.name} (${cat.sheet}) - lấy tin mới...`);
-
-    const refs = await readNewsRowRefs(cat.sheet);
-    console.log(`   Sheet đang có ${refs.length} bài.`);
-
-    const sinceTs = TODAY_ONLY ? startOfTodayVN() : 0;
-    const newNews = await collectNewArticles(cat.sources, refs.map(r => r.url), 100, 0, sinceTs);
-
-    if (newNews.length === 0) {
-        console.log(`   Không có bài mới. Chỉ cập nhật heartbeat.`);
-        await updateHeartbeatOnly(cat.sheet);
-        return 0;
-    }
-
-    newNews.forEach(item => console.log(`   [${cat.name}] ➕ ${item.title}`));
-    await appendNewsToSheet(newNews, cat.sheet);
-    return newNews.length;
-}
-
 /** LUOT CHAM: tom tat cac bai PENDING/RETRY roi ghi lai dung o theo URL */
 async function summarizeCategory(cat: Category): Promise<void> {
     const pending = selectPendingSummaries(await readNewsRowRefs(cat.sheet), MAX_SUMMARIES_PER_RUN);
@@ -127,7 +99,7 @@ async function summarizeCategory(cat: Category): Promise<void> {
 
 // ============= MAIN GOLD SYNC LOGIC =============
 async function syncGold(): Promise<void> {
-    if (!FORCE_GOLD) {
+    if (!FORCE_GOLD && GOLD_MIN_INTERVAL_MIN > 0) {
         const last = await getGoldLastFetchEpoch(SHEETS.gold);
         if (!isGoldFetchDue(last, Date.now(), GOLD_MIN_INTERVAL_MIN * 60_000)) {
             const ago = Math.round((Date.now() - last!) / 60_000);
@@ -178,24 +150,25 @@ async function sync() {
 
         validateEnv();
 
-        const categories: Category[] = [
-            { name: 'General', sources: GENERAL_SOURCES, sheet: SHEETS.general },
-            { name: 'Finance', sources: FINANCE_SOURCES, sheet: SHEETS.finance },
-        ];
+        const categories: Category[] = CATEGORIES;
 
         // Gia vang ghi sheet rieng -> chay SONG SONG voi phan tin. Truoc day no
         // chay truoc va bat tin phai cho het phan cho BTMC.
         const goldTask = step('GoldPrice', syncGold);
 
-        // 1. Luot nhanh: tin len sheet ngay
+        // 1. Luot nhanh: tin len sheet ngay. Tu 06/11/2026 luot nay chu yeu chay
+        // tren Vercel (/api/sync); o day giu lai lam DU PHONG - bai da co thi bo
+        // qua, con neu hai ben trung luc them cung mot bai thi buoc don dep o duoi
+        // se xoa ban trung.
         const t0 = Date.now();
-        for (const cat of categories) await step(`${cat.name}: lấy tin`, () => collectCategory(cat));
+        const sinceTs = TODAY_ONLY ? startOfTodayVN() : 0;
+        for (const cat of categories) await step(`${cat.name}: lấy tin`, () => collectCategory(cat, sinceTs));
         console.log(`\n⏱️ Tin mới đã lên sheet sau ${((Date.now() - t0) / 1000).toFixed(1)}s.`);
 
         // 2. Luot cham: tom tat. 3. Cat tia - lam SAU tom tat de khong lam dich
         // dong giua luc doc va ghi ket qua tom tat.
         for (const cat of categories) await step(`${cat.name}: tóm tắt`, () => summarizeCategory(cat));
-        for (const cat of categories) await step(`${cat.name}: cắt bớt`, () => trimNewsSheet(cat.sheet, MAX_ITEMS_PER_SHEET, TRIM_SLACK));
+        for (const cat of categories) await step(`${cat.name}: dọn trùng + cắt bớt`, () => trimNewsSheet(cat.sheet, MAX_ITEMS_PER_SHEET, TRIM_SLACK));
 
         await goldTask;
 
