@@ -1,11 +1,17 @@
 import Parser from 'rss-parser';
 import { NewsItem } from './google-sheets';
+import { articleKey } from './sync-plan';
+import { pickThumbnail } from './rss-image';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 
 // Mac dinh rss-parser cho toi 60s moi feed; feed binh thuong tra trong <1s
-const parser = new Parser({ timeout: 15_000 });
+const parser = new Parser({
+    timeout: 15_000,
+    // Anh dai dien kieu Media RSS (rss-parser mac dinh khong doc) - xem rss-image.ts
+    customFields: { item: ['media:content', 'media:thumbnail'] },
+});
 const execFileAsync = promisify(execFile);
 
 export interface NewsSource {
@@ -171,7 +177,8 @@ export async function collectNewArticles(
     // Neu dat, bo qua bai cu hon moc nay (dung cho lan backfill dau tien)
     sinceTimestamp: number = 0
 ): Promise<NewsItem[]> {
-    const existing = new Set(existingUrls);
+    // So theo MA BAI, khong theo URL: bao doi duong dan khi sua tieu de (xem articleKey)
+    const existing = new Set(existingUrls.map(articleKey));
     const seen = new Set<string>();
     const budget = maxNewItems > 0 ? maxNewItems : Infinity;
     const runStartedAt = Date.now();
@@ -211,8 +218,9 @@ export async function collectNewArticles(
 
             // Dem gon thay vi log tung dong - khi sheet da co vai nghin bai thi
             // log tung dong bi bo qua se lam ngap log CI
-            if (existing.has(url)) { alreadyInSheet++; continue; }
-            if (seen.has(url)) { duplicateInRun++; continue; }
+            const key = articleKey(url);
+            if (existing.has(key)) { alreadyInSheet++; continue; }
+            if (seen.has(key)) { duplicateInRun++; continue; }
 
             const timestamp = parsePubDate(item.pubDate, runStartedAt);
             if (timestamp === null) {
@@ -227,12 +235,12 @@ export async function collectNewArticles(
                 continue;
             }
 
-            seen.add(url);
+            seen.add(key);
             items.push({
                 title: item.title || '',
                 url,
                 summary: cleanSummary(item.contentSnippet || item.summary || ''),
-                thumbnail: extractThumbnail(item.content || item.summary || ''),
+                thumbnail: pickThumbnail(item),
                 pubDate,
                 timestamp,
             });
@@ -276,11 +284,6 @@ export async function collectNewArticles(
         thumbnail: candidate.thumbnail,
         timestamp: candidate.timestamp,
     }));
-}
-
-function extractThumbnail(content: string): string {
-    const match = content.match(/src="([^"]+)"/);
-    return match ? match[1] : '';
 }
 
 function cleanSummary(summary: string): string {

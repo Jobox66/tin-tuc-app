@@ -80,15 +80,35 @@ export function planTrim(rows: NewsRowRef[], maxRows: number, slack: number = 0)
 }
 
 /**
- * Dong trung URL can xoa. Trung xay ra khi Vercel (/api/sync) va GitHub Actions
- * cung them mot bai trong cung vai giay. Giu lai MOT dong moi URL, uu tien:
- * bai da Luu > da tom tat xong (DONE) > dong o tren.
+ * Khoa nhan dien MOT bai bao, dung de loc trung thay cho URL.
+ *
+ * VnExpress va Tuoi Tre DOI DUONG DAN khi sua tieu de bai dang cap nhat, nhung
+ * giu nguyen MA BAI o cuoi (do 09/11/2026: bai 5142256 co 3 URL / 3 tieu de,
+ * Sheet1 co 90 bai bi lap nhu vay). URL cu van mo duoc nen chi can giu mot dong.
+ *   https://vnexpress.net/ha-noi-mua-giong-nguy-co-tac-duong-5142256.html -> vnexpress.net#5142256
+ *   https://tuoitre.vn/...-100261028184722795.htm                      -> tuoitre.vn#100261028184722795
+ * Bao khac (CafeF, Vietstock...) chua kiem chung cach dat URL -> giu nguyen URL.
+ */
+const ID_URL = /^https?:\/\/(?:www\.)?(vnexpress\.net|tuoitre\.vn)\/[^?#]*-(\d{6,})\.html?(?:[?#].*)?$/i;
+
+export function articleKey(url: string): string {
+    const u = (url || '').trim();
+    const m = ID_URL.exec(u);
+    return m ? `${m[1].toLowerCase()}#${m[2]}` : u;
+}
+
+/**
+ * Dong trung can xoa (cung `articleKey`). Trung xay ra khi:
+ * - Vercel (/api/sync) va GitHub Actions cung them mot bai trong cung vai giay;
+ * - bao doi duong dan khi sua tieu de (xem articleKey).
+ * Giu lai MOT dong moi bai, uu tien: bai da Luu > da tom tat xong (DONE) > dong o tren.
  */
 export function planDuplicateRemoval(rows: NewsRowRef[]): number[] {
     const groups = new Map<string, NewsRowRef[]>();
     for (const r of rows) {
-        const list = groups.get(r.url);
-        if (list) list.push(r); else groups.set(r.url, [r]);
+        const key = articleKey(r.url);
+        const list = groups.get(key);
+        if (list) list.push(r); else groups.set(key, [r]);
     }
     const rank = (r: NewsRowRef) => [r.isSaved ? 0 : 1, r.status === SUMMARY_DONE ? 0 : 1, r.row];
     const better = (a: NewsRowRef, b: NewsRowRef) => {

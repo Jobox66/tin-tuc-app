@@ -3,7 +3,7 @@
 import { google } from 'googleapis';
 import { revalidatePath } from 'next/cache';
 import { getAuthClient, getNewsFromSheets, NewsItem } from '@/lib/google-sheets';
-import { sortNewsDesc } from '@/lib/news-feed';
+import { dedupeArticles, sortNewsDesc } from '@/lib/news-feed';
 
 // Server action la endpoint cong khai - chi cho doc dung cac sheet tin.
 const READABLE_NEWS_SHEETS = new Set(['Sheet1', 'Finance']);
@@ -17,7 +17,7 @@ export async function loadAllNews(sheetName: string): Promise<{ success: boolean
     if (!READABLE_NEWS_SHEETS.has(sheetName)) return { success: false, items: [] };
     const { news } = await getNewsFromSheets(sheetName);
     if (news.length === 0) return { success: false, items: [] };
-    return { success: true, items: sortNewsDesc(news) };
+    return { success: true, items: sortNewsDesc(dedupeArticles(news)) };
 }
 
 export async function updateArticleStatus(

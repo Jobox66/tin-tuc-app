@@ -4,6 +4,7 @@
  * (file do keo theo googleapis, khong dong goi cho trinh duyet duoc).
  */
 import type { NewsItem } from './google-sheets';
+import { articleKey } from './sync-plan';
 
 // Truoc day trang gui CA ~6.800 bai (~7MB) xuong trinh duyet chi de phan trang
 // 15 bai/trang. 300 bai = 20 trang; muon xem cu hon thi bam "Tải thêm".
@@ -16,11 +17,28 @@ export function sortNewsDesc(items: NewsItem[]): NewsItem[] {
 }
 
 /**
+ * Moi bai (cung `articleKey`) chi hien MOT lan, ke ca khi sheet con dong trung
+ * chua kip don (buoc don chay tren GitHub Actions). Giu dong da Luu neu co,
+ * khong thi giu dong o tren cung - giong quy tac cua planDuplicateRemoval.
+ * Giu nguyen thu tu dau vao.
+ */
+export function dedupeArticles(items: NewsItem[]): NewsItem[] {
+    const chosen = new Map<string, NewsItem>();
+    for (const item of items) {
+        const key = articleKey(item.url);
+        const cur = chosen.get(key);
+        if (!cur || (item.isSaved && !cur.isSaved)) chosen.set(key, item);
+    }
+    const keep = new Set(chosen.values());
+    return items.filter(i => keep.has(i));
+}
+
+/**
  * `limit` bai CHUA AN moi nhat + TAT CA bai da Luu (tab "Tin Đã Lưu" phai
  * day du ngay tu dau), giu thu tu moi nhat truoc.
  */
 export function buildInitialFeed(items: NewsItem[], limit: number = INITIAL_NEWS_LIMIT): { items: NewsItem[]; hasMore: boolean } {
-    const sorted = sortNewsDesc(items);
+    const sorted = sortNewsDesc(dedupeArticles(items));
     const picked: NewsItem[] = [];
     let visibleTaken = 0;
     let hasMore = false;

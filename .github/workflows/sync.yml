@@ -9,7 +9,7 @@ on:
 
   # NGUON KICH HOAT CHINH. Dich vu cron ben ngoai goi API dispatches theo dung
   # nhip mong muon - GitHub khong hoan dispatch thu cong.
-  # Xem muc "Kich hoat sync dung nhip" trong README + scripts/trigger-sync.sh
+  # Huong dan: muc 3.7 trong w_doc/caitien.md + scripts/trigger-sync.sh
   workflow_dispatch:
 
 # Khong huy run dang chay: mot luot sync chi ~2 phut, con bi huy giua chung
