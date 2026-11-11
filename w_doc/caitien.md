@@ -1,6 +1,6 @@
 # Tin Tức App: việc tiếp theo, quyết định đã chốt, tài liệu kỹ thuật
 
-> Cập nhật 09/11/2026. Code trên GitHub/Vercel là **v5.1** (commit `423dc86`): `/api/sync` đã chạy, cron-job.org gọi 5 phút/lần. Các sửa ngày 09/11 (lọc tin lặp theo mã bài, lấy ảnh từ RSS cho mọi báo, Vercel tự kích hoạt GitHub) **chưa commit**.
+> Cập nhật 11/11/2026. Code trên GitHub/Vercel là **v5.1.2** (commit `f8a0427`). `/api/sync` lấy tin 15 phút/lần (anh giãn từ 5 phút sáng 11/11) và tự kích hoạt GitHub; đã chạy đều từ sáng 11/11. Thay đổi nhịp GitHub sang 30 phút (11/11) **chưa commit**.
 
 ## 1. Việc cần làm tiếp
 
@@ -9,10 +9,10 @@
 | 1 | Tạo token GitHub mới (fine-grained, chỉ quyền Actions: Read and write) | Anh | Mục 3.7 bước 1. Có thể thử token bằng Git Bash ở bước 2. Không gửi token vào chat |
 | 2 | Vercel: thêm biến `GH_DISPATCH_TOKEN` = token ở việc 1 | Anh | Mục 3.7 bước 3. Giống cách thêm `SYNC_SECRET`; đặt **trước** khi push thì không phải Redeploy |
 | 3 | Commit/push các sửa ngày 09/11 (`git add -A`) | Anh | Đã kiểm trên máy: 53 test pass, `tsc`, `eslint`, `npm run build` không lỗi. File mới: `src/lib/github-dispatch.ts`, `src/lib/rss-image.ts` và 3 file test |
-| 4 | Xoá job cron-job.org gọi GitHub (job đang lỗi `400`). **Giữ** job gọi `/api/sync` | Anh | Từ giờ chính `/api/sync` tự kích hoạt GitHub ~10 phút/lần |
-| 5 | Kiểm tra sau khi anh làm xong việc 1–4: GitHub chạy đều ~10 phút, giá vàng cập nhật, tóm tắt hết `PENDING`, 94 dòng tin lặp đã được dọn | Claude | |
+| 4 | Xoá job cron-job.org gọi GitHub (job đang lỗi `400`). **Giữ** job gọi `/api/sync` | Anh | Từ giờ chính `/api/sync` tự kích hoạt GitHub ~30 phút/lần |
+| 5 | Kiểm tra sau khi anh làm xong việc 1–4: GitHub chạy đều ~30 phút, giá vàng cập nhật, tóm tắt hết `PENDING`, 94 dòng tin lặp đã được dọn | Claude | |
 | 6 | Bấm thử trên trình duyệt: nút "Tải thêm bài cũ hơn" (trang cuối tab Tin Chung) và chọn ngày trong khung "Biến động trong ngày" | Anh | Hai chỗ này mới kiểm qua server, chưa kiểm trên trình duyệt |
-| 7 | Quyết định: Vietstock giữ `/0/tin-moi.rss` (chỉ giữ ~4 tiếng bài) hay đổi sang `/144/chung-khoan.rss` (giữ ~2 ngày, chỉ tin chứng khoán) | Anh | Đang dùng `tin-moi`. `/api/sync` chạy 5 phút/lần nên không sót bài |
+| 7 | Quyết định: Vietstock giữ `/0/tin-moi.rss` (chỉ giữ ~4 tiếng bài) hay đổi sang `/144/chung-khoan.rss` (giữ ~2 ngày, chỉ tin chứng khoán) | Anh | Đang dùng `tin-moi`. `/api/sync` chạy 15 phút/lần, vẫn trong ~4 tiếng nên không sót bài |
 | 8 | Quyết định: xoá hay giữ 3 sheet cũ `International`, `IntlFinance`, `IntlTech` | Anh | Không còn dùng từ khi bỏ nguồn nước ngoài |
 
 > Lưu ý khi bình luận trực tiếp vào file này: trình soạn thảo bảng anh đang dùng từng không ghi bình luận xuống đĩa. Lưu xong anh mở lại file để chắc chắn, và mở lại bản mới trước khi sửa tiếp.
@@ -24,7 +24,7 @@
 | Lưu trữ              | Giữ Google Sheets, không chuyển sang Postgres (02/11)                                                                                                                                                                                  |
 | Tin tức               | Chỉ báo tiếng Việt, 4 chuyên mục. Mỗi sheet giữ tối đa **5.000 bài** (cắt khi vượt 5.100), **không bao giờ xoá bài đã Lưu**                                                                              |
 | Nguồn tài chính     | Bỏ Báo Đầu tư (feed rỗng); Vietstock chuyển sang đường dẫn RSS mới (06/11)                                                                                                                                                    |
-| Lấy tin | Lượt nhanh chạy trên **Vercel `/api/sync`**, cron-job.org gọi mỗi 5 phút (06/11). Chính route này **tự kích hoạt GitHub Actions** ~10 phút/lần để tóm tắt, lấy giá vàng, dọn trùng, cắt bớt; bỏ job cron-job.org gọi GitHub riêng (09/11) |
+| Lấy tin | Lượt nhanh chạy trên **Vercel `/api/sync`**, cron-job.org gọi mỗi **15 phút** (06/11 đặt 5 phút; 11/11 anh giãn ra 15 phút cho thưa bớt — muốn tin nhanh hơn thì đặt lại 5 phút, không cần sửa code). Chính route này **tự kích hoạt GitHub Actions** ~30 phút/lần (giãn từ 10 phút ngày 11/11) để tóm tắt, lấy giá vàng, dọn trùng, cắt bớt; bỏ job cron-job.org gọi GitHub riêng (09/11) |
 | Lọc trùng tin | Theo **mã bài** (số cuối URL) cho VnExpress, Tuổi Trẻ, vì hai báo đổi đường dẫn khi sửa tiêu đề (09/11) |
 | Ảnh bài | Lấy ngay từ RSS lúc thêm bài (thẻ `<enclosure>`, `media:content`, `<img>`), Python chỉ bổ sung sau (09/11) |
 | Tóm tắt              | Tách khỏi bước lấy tin: bài lên sheet ngay với tóm tắt RSS, Python tóm tắt sau                                                                                                                                                |
@@ -47,9 +47,9 @@ Tin Chung dùng feed theo chuyên mục thay vì feed "tin mới nhất". Lý do
 ### 3.2 Luồng sync
 
 ```
-cron-job.org ──(5 phút)──▶ Vercel /api/sync
+cron-job.org ──(15 phút)──▶ Vercel /api/sync
                               ├─ đọc RSS, thêm bài + ảnh (cột I = PENDING) ──▶ Google Sheets ◀── trang Next.js (cache 60s)
-                              └─ ~10 phút/lần: workflow_dispatch ──▶ GitHub Actions
+                              └─ ~30 phút/lần: workflow_dispatch ──▶ GitHub Actions
                                      tóm tắt bài PENDING · giá vàng · dọn trùng · cắt bớt · lấy tin dự phòng ──▶ Google Sheets
 ```
 
@@ -195,11 +195,11 @@ curl.exe -s -o NUL -w "%{http_code}`n" https://<tên-miền>/api/sync
 
 ### 3.7 Kích hoạt GitHub Actions đúng nhịp
 
-GitHub hoãn lịch `schedule` của repo công khai rất nặng (đo được 3–8 tiếng/lượt), còn `workflow_dispatch` thì chạy ngay (đo 09/11: chờ 0 giây, xong trong 88 giây). Lịch `*/10` trong `sync.yml` chỉ để dự phòng. Workflow để `cancel-in-progress: false`, nên lượt mới xếp hàng chờ chứ không giết lượt đang ghi.
+GitHub hoãn lịch `schedule` của repo công khai rất nặng (đo được 3–8 tiếng/lượt), còn `workflow_dispatch` thì chạy ngay (đo 09/11: chờ 0 giây, xong trong 88 giây). Lịch `*/30` trong `sync.yml` chỉ để dự phòng. Workflow để `cancel-in-progress: false`, nên lượt mới xếp hàng chờ chứ không giết lượt đang ghi.
 
-Lượt GitHub lo những việc Vercel không làm: tóm tắt bằng Python, lấy giá vàng, dọn trùng và cắt bớt. **Tin mới không phụ thuộc GitHub**: Vercel đã thêm bài (kèm ảnh và tóm tắt ngắn từ RSS) trong vòng 5 phút.
+Lượt GitHub lo những việc Vercel không làm: tóm tắt bằng Python, lấy giá vàng, dọn trùng và cắt bớt. **Tin mới không phụ thuộc GitHub**: Vercel đã thêm bài (kèm ảnh và tóm tắt ngắn từ RSS) trong vòng 15 phút (nhịp job cron-job.org).
 
-**Cách kích hoạt (từ 09/11):** route `/api/sync` mỗi lần được cron-job.org gọi (5 phút) sẽ hỏi GitHub lượt chạy gần nhất của workflow. Nếu lượt đó đã cách **≥ 10 phút** và không còn đang chạy thì gửi `workflow_dispatch`. Code ở `src/lib/github-dispatch.ts`. Không cần job cron-job.org riêng cho GitHub nữa.
+**Cách kích hoạt (từ 09/11):** route `/api/sync` mỗi lần được cron-job.org gọi (hiện 15 phút) sẽ hỏi GitHub lượt chạy gần nhất của workflow. Nếu lượt đó đã cách **≥ 30 phút** và không còn đang chạy thì gửi `workflow_dispatch`. Code ở `src/lib/github-dispatch.ts`. Không cần job cron-job.org riêng cho GitHub nữa.
 
 **Bước 0. Tìm và gỡ trigger cũ**
 
@@ -355,7 +355,7 @@ curl -s "https://api.github.com/repos/Jobox66/tin-tuc-app/actions/workflows/sync
   | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{for(const r of JSON.parse(s).workflow_runs)console.log(new Date(r.created_at).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'}),r.event,r.status,r.conclusion||'')})"
 ```
 
-Trigger chạy đúng thì giờ giữa các dòng `workflow_dispatch` cách nhau khoảng 10 phút. Hiện tại chỉ có `schedule`, các dòng cách nhau 3–7 tiếng.
+Trigger chạy đúng thì giờ giữa các dòng `workflow_dispatch` cách nhau khoảng 30 phút.
 
 **Giới hạn:** API công khai không cần token cho phép **60 lần gọi mỗi giờ** cho mỗi IP, nên chạy lại vài chục lần cũng không sao. Nếu thấy lỗi `workflow_runs is not iterable` thì đã hết lượt gọi; đợi tới giờ sau rồi chạy lại.
 
@@ -400,7 +400,7 @@ Các biến tuỳ chọn, thường **không cần đặt**:
 
 | Biến | Mặc định | Dùng khi |
 |---|---|---|
-| `GH_DISPATCH_INTERVAL_MIN` | `10` | Muốn GitHub chạy thưa hoặc dày hơn. Nên ≥ 5 vì một lượt mất ~1,5–2 phút |
+| `GH_DISPATCH_INTERVAL_MIN` | `30` | Muốn GitHub chạy thưa hoặc dày hơn **mà không cần sửa code**: đặt biến trên Vercel rồi Redeploy. Nên ≥ 5 vì một lượt mất ~1,5–2 phút |
 | `GH_DISPATCH_REPO` | `Jobox66/tin-tuc-app` | Đổi tên repo hoặc chủ repo |
 | `GH_DISPATCH_WORKFLOW` | `sync.yml` | Đổi tên file workflow |
 | `GH_DISPATCH_REF` | `master` | Đổi nhánh chính |
@@ -412,7 +412,7 @@ Các biến tuỳ chọn, thường **không cần đặt**:
    | Response có | Ý nghĩa |
    |---|---|
    | `"github":{"dispatched":true}` | Đã kích hoạt GitHub. Tab Actions có lượt `workflow_dispatch` mới |
-   | `"github":{"dispatched":false,"reason":"luot truoc moi 3 phut"}` | Bình thường: lượt trước chưa đủ 10 phút |
+   | `"github":{"dispatched":false,"reason":"luot truoc moi 3 phut"}` | Bình thường: lượt trước chưa đủ 30 phút |
    | `"reason":"luot truoc dang in_progress"` | Bình thường: GitHub đang chạy, không xếp thêm |
    | `"reason":"chua dat GH_DISPATCH_TOKEN"` | Bản deploy chưa có biến: làm lại bước 3 ý 4 (Redeploy) |
    | `"error":"...401..."` | Token sai hoặc hết hạn: tạo token mới, sửa biến trên Vercel, Redeploy |
@@ -420,7 +420,7 @@ Các biến tuỳ chọn, thường **không cần đặt**:
    | `"error":"...404..."` | Token không được cấp repo `tin-tuc-app` |
 
    Lỗi gọi GitHub **không** làm `/api/sync` trả `500`, vẫn trả `200`. Lý do: cron-job.org tự tắt job sau nhiều lần lỗi, sẽ kéo đứng cả việc lấy tin. Lỗi được ghi ở Vercel → **Logs** (tìm `GitHub dispatch lỗi`) và trong JSON trả về.
-2. **Sau khoảng 1 giờ:** chạy lệnh "xem mọi lượt" ở bước 2.5, hoặc mở tab **Actions** và lọc **Event** = `workflow_dispatch`. Phải thấy ~5–6 lượt cách nhau 10–15 phút, đều ✓ xanh. Sau đó báo Claude (việc số 5 ở mục 1) để kiểm tra giá vàng, tóm tắt và dữ liệu sheet.
+2. **Sau khoảng 1 giờ:** chạy lệnh "xem mọi lượt" ở bước 2.5, hoặc mở tab **Actions** và lọc **Event** = `workflow_dispatch`. Phải thấy ~2 lượt cách nhau ~30 phút, đều ✓ xanh. Sau đó báo Claude (việc số 5 ở mục 1) để kiểm tra giá vàng, tóm tắt và dữ liệu sheet.
 
 **Khi token sắp hết hạn:** tạo token mới theo bước 1, sửa `GH_DISPATCH_TOKEN` trên Vercel, **Redeploy**, kiểm tra lại theo bước 4. Cuối cùng mới xoá token cũ trên GitHub.
 

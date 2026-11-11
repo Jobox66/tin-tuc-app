@@ -4,7 +4,7 @@
  *
  * Chi doc RSS + them bai moi (cot I = PENDING). Tom tat bang Python, gia vang,
  * don trung/cat bot van do GitHub Actions lam - va route nay tu kich hoat
- * GitHub Actions moi ~10 phut (xem src/lib/github-dispatch.ts).
+ * GitHub Actions moi ~30 phut (xem src/lib/github-dispatch.ts).
  *
  * Goi:  GET (hoac POST) /api/sync
  *       Header  Authorization: Bearer <SYNC_SECRET>

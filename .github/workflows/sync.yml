@@ -2,13 +2,12 @@ name: Tintuc Sync
 
 on:
   # DU PHONG. GitHub hoan cron cua repo public rat nang: do thuc te 17-18/9
-  # voi */30 la 141-303 phut/lan. Dat */10 de tang co hoi chay, nhung KHONG
-  # trong cho lich nay giu dung nhip.
+  # voi */30 la 141-303 phut/lan. Lich nay chi phong khi Vercel ngung goi.
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/30 * * * *'
 
-  # NGUON KICH HOAT CHINH. Dich vu cron ben ngoai goi API dispatches theo dung
-  # nhip mong muon - GitHub khong hoan dispatch thu cong.
+  # NGUON KICH HOAT CHINH. Vercel /api/sync tu goi API dispatches ~30 phut/lan
+  # (src/lib/github-dispatch.ts) - GitHub khong hoan dispatch.
   # Huong dan: muc 3.7 trong w_doc/caitien.md + scripts/trigger-sync.sh
   workflow_dispatch:
 

@@ -14,8 +14,12 @@
  *   GH_DISPATCH_REPO           mac dinh Jobox66/tin-tuc-app
  *   GH_DISPATCH_WORKFLOW       mac dinh sync.yml
  *   GH_DISPATCH_REF            mac dinh master
- *   GH_DISPATCH_INTERVAL_MIN   mac dinh 10
+ *   GH_DISPATCH_INTERVAL_MIN   mac dinh 30 (anh chon 11/11/2026: tin van 5 phut qua
+ *                              Vercel; GitHub chi lo tom tat/gia vang/don dep nen 30 phut la du)
  */
+
+/** Nhip kich hoat GitHub mac dinh (phut); doi bang bien GH_DISPATCH_INTERVAL_MIN tren Vercel */
+export const DEFAULT_INTERVAL_MIN = 30;
 
 export interface LatestRun {
     status: string;      // queued | in_progress | completed | waiting | requested | pending
@@ -29,8 +33,8 @@ export const STALE_ACTIVE_MS = 30 * 60_000;
 
 /**
  * Co nen kich hoat khong.
- * `graceMs` bu do lech nhip: cron 5 phut, nhip 10 phut - luot truoc cach 9:58
- * van tinh la du, neu khong se thanh 15 phut/lan.
+ * `graceMs` bu do lech nhip: cron 5 phut, nhip 30 phut - luot truoc cach 29:58
+ * van tinh la du, neu khong se thanh 35 phut/lan.
  */
 export function shouldDispatch(
     latest: LatestRun | null,
@@ -65,8 +69,8 @@ function config() {
     const repo = process.env.GH_DISPATCH_REPO || 'Jobox66/tin-tuc-app';
     const workflow = process.env.GH_DISPATCH_WORKFLOW || 'sync.yml';
     const ref = process.env.GH_DISPATCH_REF || 'master';
-    const minutes = Number(process.env.GH_DISPATCH_INTERVAL_MIN || 10);
-    const intervalMs = (Number.isFinite(minutes) && minutes > 0 ? minutes : 10) * 60_000;
+    const minutes = Number(process.env.GH_DISPATCH_INTERVAL_MIN || DEFAULT_INTERVAL_MIN);
+    const intervalMs = (Number.isFinite(minutes) && minutes > 0 ? minutes : DEFAULT_INTERVAL_MIN) * 60_000;
     return { token, repo, workflow, ref, intervalMs };
 }
 

@@ -56,7 +56,7 @@ test('maybeDispatchGithub: chua dat token -> khong goi mang', async () => {
 
 test('maybeDispatchGithub: du lau -> POST dispatches dung URL, header, body', async () => {
     process.env.GH_DISPATCH_TOKEN = 'github_pat_test';
-    const calls = mockFetch([runsBody(20), new Response(null, { status: 204 })]);
+    const calls = mockFetch([runsBody(40), new Response(null, { status: 204 })]);
     const r = await maybeDispatchGithub(NOW);
     assert.deepEqual(r, { dispatched: true });
     assert.equal(calls[0].url, 'https://api.github.com/repos/Jobox66/tin-tuc-app/actions/workflows/sync.yml/runs?per_page=1');
@@ -68,12 +68,21 @@ test('maybeDispatchGithub: du lau -> POST dispatches dung URL, header, body', as
     assert.equal(h['Content-Type'], 'application/json');
 });
 
-test('maybeDispatchGithub: luot truoc moi chay -> chi doc, khong POST', async () => {
+test('maybeDispatchGithub: mac dinh 30 phut - luot truoc cach 20 phut -> chi doc, khong POST', async () => {
     process.env.GH_DISPATCH_TOKEN = 'github_pat_test';
-    const calls = mockFetch([runsBody(3)]);
+    delete process.env.GH_DISPATCH_INTERVAL_MIN;
+    const calls = mockFetch([runsBody(20)]);
     const r = await maybeDispatchGithub(NOW);
     assert.equal(r.dispatched, false);
     assert.equal(calls.length, 1);
+});
+
+test('maybeDispatchGithub: bien GH_DISPATCH_INTERVAL_MIN ghi de mac dinh', async () => {
+    process.env.GH_DISPATCH_TOKEN = 'github_pat_test';
+    process.env.GH_DISPATCH_INTERVAL_MIN = '10';
+    const calls = mockFetch([runsBody(20), new Response(null, { status: 204 })]);
+    assert.deepEqual(await maybeDispatchGithub(NOW), { dispatched: true });
+    assert.equal(calls.length, 2);
 });
 
 test('maybeDispatchGithub: token het han -> loi de hieu, khong nem', async () => {
