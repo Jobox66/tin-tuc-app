@@ -1,11 +1,15 @@
 import { getNewsFromSheets, getLatestGoldPricesFromSheets } from "@/lib/google-sheets";
 import { buildInitialFeed } from "@/lib/news-feed";
+import { shortArticleDate } from "@/lib/article-display";
 import NewsFeed from "@/components/NewsFeed";
+import { BrandButton, BackToTop } from "@/components/ScrollControls";
 
 // Cache trang 60s thay vi doc lai 3 sheet (~7MB) tu Google o MOI luot truy cap.
 // Tin moi cham toi da 60s; Luu/An bai van thay ngay vi actions.ts goi
 // revalidatePath('/').
 export const revalidate = 60;
+
+const VN_TZ = 'Asia/Ho_Chi_Minh';
 
 export default async function Home() {
   // Đọc song song 6 sheet - tuần tự khiến TTFB cộng dồn 6 lượt gọi Google API
@@ -23,53 +27,53 @@ export default async function Home() {
   const generalFeed = buildInitialFeed(generalNews);
   const financeFeed = buildInitialFeed(financeNews);
 
-  // Find latest article timestamp
+  // Nam hien tai (gio VN) - the bai chi ghi nam khi khac nam nay
+  const currentYear = Number(new Date().toLocaleString('en-US', { timeZone: VN_TZ, year: 'numeric' }));
+
   const allNews = [...generalNews, ...financeNews];
   const lastArticleTime = allNews.length > 0
-    ? new Date(Math.max(...allNews.map(n => n.timestamp))).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })
-    : 'Chưa có dữ liệu';
-
-  const systemRunTime = heartbeat || 'Chưa có log';
+    ? shortArticleDate(
+      new Date(allNews.reduce((max, n) => Math.max(max, n.timestamp), 0)).toLocaleString('vi-VN', { timeZone: VN_TZ }),
+      currentYear,
+    )
+    : null;
+  const systemRunTime = heartbeat ? shortArticleDate(heartbeat, currentYear) : null;
+  const totalCount = (generalNews.length + financeNews.length).toLocaleString('vi-VN');
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 font-sans text-zinc-900 dark:text-zinc-100 selection:bg-indigo-100 dark:selection:bg-indigo-900">
-      {/* Header */}
-      <nav className="sticky top-0 z-50 w-full border-b border-zinc-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md">
-        <div className="mx-auto max-w-[1650px] px-8 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
-              <span className="text-white font-bold text-lg">T</span>
-            </div>
-            <h1 className="text-xl font-bold tracking-tight">App Tin Tuc</h1>
-          </div>
-          <div className="flex flex-col items-end gap-1">
-            <div className="flex items-center gap-4">
-              <div className="text-sm text-zinc-500 dark:text-zinc-400 font-medium">
-                {generalNews.length + financeNews.length} bài báo
-              </div>
-              <div className="px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-xs font-bold text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-800">
-                Multi-Tab Sync
-              </div>
-            </div>
-            <div className="text-[10px] text-zinc-400 dark:text-zinc-500 font-medium flex flex-col items-end gap-0.5">
-              <span>Tin mới nhất: {lastArticleTime}</span>
-              <span>Hệ thống quét lúc: {systemRunTime}</span>
-              <span className="text-indigo-400 font-bold mt-1">
-                Tổng: {generalNews.length} (Tin Chung) | {financeNews.length} (Tài Chính)
+    <div className="min-h-screen bg-zinc-50 font-sans text-zinc-900 selection:bg-red-100 dark:bg-zinc-950 dark:text-zinc-100 dark:selection:bg-red-900/60">
+      <nav className="sticky top-0 z-50 h-14 w-full border-b border-zinc-200/80 bg-white/85 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/85">
+        <div className="mx-auto flex h-full max-w-[1400px] items-center justify-between gap-4 px-4 sm:px-6">
+          <BrandButton />
+          <div
+            className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400"
+            title={`Tin Chung: ${generalNews.length.toLocaleString('vi-VN')} · Tài Chính: ${financeNews.length.toLocaleString('vi-VN')}${systemRunTime ? ` · Hệ thống quét lúc ${systemRunTime}` : ''}`}
+          >
+            <span className="relative flex h-2 w-2" aria-hidden="true">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60 motion-reduce:animate-none" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+            </span>
+            {lastArticleTime ? (
+              <span>
+                <span className="hidden sm:inline">Tin mới nhất </span>
+                <span className="font-medium tabular-nums text-zinc-700 dark:text-zinc-300">{lastArticleTime}</span>
               </span>
-            </div>
+            ) : (
+              <span>Chưa có dữ liệu</span>
+            )}
+            <span className="hidden text-zinc-300 sm:inline dark:text-zinc-700" aria-hidden="true">|</span>
+            <span className="hidden tabular-nums sm:inline">{totalCount} bài</span>
           </div>
         </div>
       </nav>
 
-      {/* Main Content */}
-      <main className="mx-auto max-w-[1650px] px-6 py-12">
-        <header className="mb-12">
-          <h2 className="text-4xl font-extrabold tracking-tight sm:text-5xl mb-4 text-zinc-900 dark:text-zinc-50">
-            Tổng hợp tin tức mới nhất
-          </h2>
-          <p className="text-lg text-zinc-600 dark:text-zinc-400 max-w-2xl">
-            Tin tức đa lĩnh vực được cập nhật liên tục và tóm tắt bởi AI.
+      <main className="mx-auto max-w-[1400px] px-4 pb-16 pt-8 sm:px-6 sm:pt-10">
+        <header className="mb-6 sm:mb-8">
+          <h1 className="text-2xl font-extrabold tracking-tight text-zinc-950 sm:text-3xl dark:text-zinc-50">
+            Tin mới nhất
+          </h1>
+          <p className="mt-1.5 text-sm text-zinc-500 sm:text-base dark:text-zinc-400">
+            Tổng hợp từ VnExpress, Tuổi Trẻ, CafeF, Vietstock và tóm tắt tự động.
           </p>
         </header>
 
@@ -81,17 +85,18 @@ export default async function Home() {
           initialGoldSeries={goldRes.series}
           initialGoldWorld={goldRes.world}
           initialGoldMoves={goldRes.moves}
+          currentYear={currentYear}
         />
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-zinc-200 dark:border-zinc-800 py-12 mt-20">
-        <div className="mx-auto max-w-[1650px] px-6 text-center">
-          <p className="text-zinc-500 text-sm">
-            © 2026 App Tin Tuc. Được build bằng Next.js và Google Sheets by DucTN.
-          </p>
+      <footer className="border-t border-zinc-200 py-8 dark:border-zinc-800">
+        <div className="mx-auto max-w-[1400px] px-4 text-sm text-zinc-500 sm:px-6">
+          © 2026 Tin Tức · Next.js + Google Sheets · DucTN
+          {systemRunTime && <span className="block sm:ml-2 sm:inline">· Hệ thống quét lúc {systemRunTime}</span>}
         </div>
       </footer>
+
+      <BackToTop />
     </div>
   );
 }

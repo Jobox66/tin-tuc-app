@@ -1,9 +1,11 @@
 "use client";
 
 import type { NewsItem, GoldPriceRow, GoldSeries, GoldWorldPoint, GoldDayMoves } from "@/lib/google-sheets";
-import { useState, useTransition, useMemo } from "react";
+import { useState, useTransition, useMemo, useEffect, useRef } from "react";
 import { updateArticleStatus, loadAllNews } from "@/app/actions";
+import { sourceLabel, shortArticleDate } from "@/lib/article-display";
 import GoldPriceBoard from "./GoldPriceBoard";
+import { scrollToTop } from "./ScrollControls";
 
 type CategoryKey = "general" | "finance";
 type TabKey = CategoryKey | "gold";
@@ -23,9 +25,11 @@ const CATEGORY_SHEETS: Record<CategoryKey, string> = {
     finance: "Finance",
 };
 
-// Helper function to generate pagination array with ellipsis
+const ITEMS_PER_PAGE = 15;
+
+/** Dãy số trang có dấu "..." - luôn có trang đầu, trang cuối và ±1 quanh trang hiện tại */
 function getPaginationItems(currentPage: number, totalPages: number) {
-    const delta = 2; // How many pages to show before and after current page
+    const delta = 1;
     const range: number[] = [];
     const rangeWithDots: (number | string)[] = [];
     let l: number | undefined;
@@ -51,6 +55,20 @@ function getPaginationItems(currentPage: number, totalPages: number) {
     return rangeWithDots;
 }
 
+const FOCUS_RING = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 dark:focus-visible:outline-red-400";
+
+const BookmarkIcon = ({ filled, className = "h-4 w-4" }: { filled?: boolean; className?: string }) => (
+    <svg className={`${className} ${filled ? "fill-current" : "fill-none"}`} stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+    </svg>
+);
+
+const Chevron = ({ dir }: { dir: "left" | "right" }) => (
+    <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" d={dir === "left" ? "M15 19l-7-7 7-7" : "M9 5l7 7-7 7"} />
+    </svg>
+);
+
 interface NewsFeedProps {
     initialGeneral: NewsItem[];
     initialFinance: NewsItem[];
@@ -60,6 +78,8 @@ interface NewsFeedProps {
     initialGoldMoves?: GoldDayMoves[];
     /** Con bai cu hon chua gui xuong (trang chi gui phan dau de nhe) */
     initialHasMore?: Record<CategoryKey, boolean>;
+    /** Nam hien tai (gio VN, tinh o server) - the bai chi ghi nam khi khac */
+    currentYear?: number;
 }
 
 export default function NewsFeed({
@@ -70,10 +90,9 @@ export default function NewsFeed({
     initialGoldWorld = [],
     initialGoldMoves = [],
     initialHasMore = { general: false, finance: false },
+    currentYear,
 }: NewsFeedProps) {
-    const [activeTab, setActiveTab] = useState<TabKey>(
-        "general"
-    );
+    const [activeTab, setActiveTab] = useState<TabKey>("general");
 
     // Local state for articles to allow Optimistic UI updates
     const [articles, setArticles] = useState<Record<CategoryKey, NewsItem[]>>({
@@ -86,7 +105,6 @@ export default function NewsFeed({
     const [, startTransition] = useTransition();
     const [currentPage, setCurrentPage] = useState(1);
     const [showSavedOnly, setShowSavedOnly] = useState(false);
-    const itemsPerPage = 15;
 
     // Compute filtered news based on active category and showSavedOnly
     const news = useMemo(() => {
@@ -98,28 +116,38 @@ export default function NewsFeed({
         return list.filter(n => !n.isHidden);
     }, [activeTab, articles, showSavedOnly]);
 
-    const totalPages = Math.ceil(news.length / itemsPerPage);
-    const indexOfLastItem = currentPage * itemsPerPage;
-    const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-    const currentNews = news.slice(indexOfFirstItem, indexOfLastItem);
+    const savedCount = isNewsTab(activeTab)
+        ? articles[activeTab as CategoryKey].filter(n => n.isSaved).length
+        : 0;
+
+    const totalPages = Math.ceil(news.length / ITEMS_PER_PAGE);
+    const indexOfFirstItem = (currentPage - 1) * ITEMS_PER_PAGE;
+    const currentNews = news.slice(indexOfFirstItem, indexOfFirstItem + ITEMS_PER_PAGE);
+
+    // Đổi trang / tab / bộ lọc -> lên đầu trang. Chạy SAU khi React đã vẽ nội
+    // dung mới: cuộn ngay trong onClick thì trang đang co/giãn (vd. sang tab
+    // Giá Vàng ngắn hơn) có thể làm lệch hoặc ngắt giữa chừng.
+    const isFirstRender = useRef(true);
+    useEffect(() => {
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
+            return;
+        }
+        scrollToTop();
+    }, [currentPage, activeTab, showSavedOnly]);
 
     const goToPage = (page: number) => {
-        setCurrentPage(page);
-        window.scrollTo({ top: 0, behavior: "smooth" });
-    };
-
-    const goToNextPage = () => {
-        if (currentPage < totalPages) goToPage(currentPage + 1);
-    };
-    const goToPrevPage = () => {
-        if (currentPage > 1) goToPage(currentPage - 1);
+        setCurrentPage(Math.min(Math.max(page, 1), Math.max(totalPages, 1)));
     };
 
     const handleTabChange = (tab: TabKey) => {
+        if (tab === activeTab && !showSavedOnly && currentPage === 1) {
+            scrollToTop(); // bấm lại tab đang mở -> vẫn lên đầu
+            return;
+        }
         setActiveTab(tab);
         setShowSavedOnly(false);
         setCurrentPage(1);
-        window.scrollTo({ top: 0, behavior: "smooth" });
     };
 
     const handleLoadMore = async () => {
@@ -169,247 +197,264 @@ export default function NewsFeed({
         });
     };
 
+    const showPager = isNewsTab(activeTab) && totalPages > 1;
+
     return (
         <>
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-10">
-                {/* Category Tabs & Saved Toggle */}
-                <div className="flex flex-wrap items-center gap-4">
-                    <div className="flex items-center p-1 bg-zinc-200/50 dark:bg-zinc-800/50 rounded-2xl w-fit backdrop-blur-sm border border-zinc-200 dark:border-zinc-700 flex-wrap">
-                        {(Object.keys(TAB_LABELS) as TabKey[]).map((key) => (
+            {/* Thanh điều hướng dính dưới header (h-14) */}
+            <div className="sticky top-14 z-30 -mx-4 mb-6 border-b border-zinc-200/80 bg-zinc-50/90 px-4 py-3 backdrop-blur-md sm:-mx-6 sm:px-6 dark:border-zinc-800 dark:bg-zinc-950/90">
+                <div className="flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2 overflow-x-auto [scrollbar-width:none]">
+                        <div role="tablist" aria-label="Chuyên mục" className="flex shrink-0 items-center rounded-lg bg-zinc-200/60 p-1 dark:bg-zinc-800/60">
+                            {(Object.keys(TAB_LABELS) as TabKey[]).map((key) => {
+                                const selected = activeTab === key && !showSavedOnly;
+                                return (
+                                    <button
+                                        key={key}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={selected}
+                                        onClick={() => handleTabChange(key)}
+                                        className={`whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-semibold transition-colors duration-150 sm:px-4 ${FOCUS_RING} ${selected
+                                            ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-700 dark:text-white"
+                                            : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                                            }`}
+                                    >
+                                        {TAB_LABELS[key]}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        {isNewsTab(activeTab) && (
                             <button
-                                key={key}
-                                onClick={() => handleTabChange(key)}
-                                className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 ${activeTab === key && !showSavedOnly
-                                    ? "bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-400 shadow-md transform scale-100"
-                                    : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 scale-95"
+                                type="button"
+                                aria-pressed={showSavedOnly}
+                                onClick={() => {
+                                    setShowSavedOnly(!showSavedOnly);
+                                    setCurrentPage(1);
+                                }}
+                                className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-2 text-sm font-semibold transition-colors duration-150 ${FOCUS_RING} ${showSavedOnly
+                                    ? "border-red-700 bg-red-700 text-white dark:border-red-500 dark:bg-red-600"
+                                    : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:text-zinc-900 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
                                     }`}
                             >
-                                {TAB_LABELS[key]}
+                                <BookmarkIcon filled={showSavedOnly} />
+                                {/* Màn hẹp chỉ còn icon + số để không bị cắt mép */}
+                                <span className="sr-only sm:not-sr-only">Đã lưu</span>
+                                <span className={`tabular-nums ${showSavedOnly ? "text-red-100" : "text-zinc-400"}`}>{savedCount}</span>
                             </button>
-                        ))}
+                        )}
                     </div>
 
-                    {isNewsTab(activeTab) && (
-                        <button
-                            onClick={() => {
-                                setShowSavedOnly(!showSavedOnly);
-                                setCurrentPage(1);
-                            }}
-                            className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-sm font-bold border transition-all duration-300 ${showSavedOnly
-                                ? "bg-indigo-600 text-white border-indigo-500 shadow-lg shadow-indigo-500/20"
-                                : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:border-indigo-500"
-                                }`}
-                        >
-                            <svg className={`w-5 h-5 ${showSavedOnly ? "fill-current" : "fill-none"}`} stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-                            </svg>
-                            Tin Đã Lưu ({articles[activeTab as CategoryKey].filter(n => n.isSaved).length})
-                        </button>
+                    {/* Phân trang gọn - chỉ màn rộng */}
+                    {showPager && (
+                        <div className="hidden shrink-0 items-center gap-1 md:flex">
+                            <button
+                                type="button"
+                                onClick={() => goToPage(currentPage - 1)}
+                                disabled={currentPage === 1}
+                                aria-label="Trang trước"
+                                className={`grid h-9 w-9 place-items-center rounded-lg text-zinc-600 transition-colors hover:bg-zinc-200/70 disabled:pointer-events-none disabled:opacity-30 dark:text-zinc-400 dark:hover:bg-zinc-800 ${FOCUS_RING}`}
+                            >
+                                <Chevron dir="left" />
+                            </button>
+                            <span className="px-1 text-sm tabular-nums text-zinc-500 dark:text-zinc-400">
+                                Trang <span className="font-semibold text-zinc-900 dark:text-zinc-100">{currentPage}</span> / {totalPages}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => goToPage(currentPage + 1)}
+                                disabled={currentPage === totalPages}
+                                aria-label="Trang sau"
+                                className={`grid h-9 w-9 place-items-center rounded-lg text-zinc-600 transition-colors hover:bg-zinc-200/70 disabled:pointer-events-none disabled:opacity-30 dark:text-zinc-400 dark:hover:bg-zinc-800 ${FOCUS_RING}`}
+                            >
+                                <Chevron dir="right" />
+                            </button>
+                        </div>
                     )}
                 </div>
-
-                {/* Mini Pagination */}
-                {isNewsTab(activeTab) && totalPages > 1 && (
-                    <div className="flex gap-3 items-center">
-                        <button
-                            onClick={goToPrevPage}
-                            disabled={currentPage === 1}
-                            className="w-10 h-10 flex items-center justify-center rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 disabled:opacity-30 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all shadow-sm"
-                        >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                            </svg>
-                        </button>
-                        <div className="px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-sm font-bold text-zinc-600 dark:text-zinc-400">
-                            Trang {currentPage} / {totalPages}
-                        </div>
-                        <button
-                            onClick={goToNextPage}
-                            disabled={currentPage === totalPages}
-                            className="w-10 h-10 flex items-center justify-center rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 disabled:opacity-30 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all shadow-sm"
-                        >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                            </svg>
-                        </button>
-                    </div>
-                )}
             </div>
 
             {activeTab === "gold" ? (
                 <GoldPriceBoard prices={initialGoldPrices} series={initialGoldSeries} world={initialGoldWorld} moves={initialGoldMoves} />
             ) : news.length === 0 ? (
-                <div className="rounded-2xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 p-20 text-center bg-white/50 dark:bg-zinc-900/50">
-                    <div className="w-16 h-16 bg-zinc-100 dark:bg-zinc-800 rounded-full flex items-center justify-center mx-auto mb-4 text-zinc-400">
-                        {showSavedOnly ? (
-                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-                            </svg>
-                        ) : (
-                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10l4 4v10a2 2 0 01-2 2z" />
-                            </svg>
-                        )}
+                <div className="rounded-xl border border-dashed border-zinc-300 px-6 py-16 text-center dark:border-zinc-700">
+                    <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-zinc-100 text-zinc-400 dark:bg-zinc-800">
+                        <BookmarkIcon className="h-6 w-6" />
                     </div>
-                    <p className="text-zinc-500 font-medium">
-                        {showSavedOnly ? "Anh chưa lưu bài viết nào ở mục này." : "Danh sách trống."}
+                    <p className="font-medium text-zinc-700 dark:text-zinc-300">
+                        {showSavedOnly ? "Chưa có bài nào được lưu ở mục này" : "Chưa có tin trong mục này"}
                     </p>
+                    {showSavedOnly && (
+                        <p className="mt-1 text-sm text-zinc-500">Bấm biểu tượng dấu trang trên mỗi bài để lưu lại đọc sau.</p>
+                    )}
                 </div>
             ) : (
-                <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+                <div className="grid gap-4 sm:gap-6 md:grid-cols-2 xl:grid-cols-3">
                     {currentNews.map((item, index) => (
-                        <article
-                            key={`${item.url}-${index}`}
-                            className="group flex flex-col bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden transition-all duration-300 hover:shadow-2xl hover:shadow-indigo-500/10 hover:-translate-y-1"
-                        >
-                            {/* Image Section */}
-                            <div className="h-52 relative overflow-hidden">
-                                {item.thumbnail ? (
-                                    <img
-                                        src={item.thumbnail}
-                                        alt={item.title}
-                                        className="object-cover w-full h-full transition-transform duration-700 group-hover:scale-110"
-                                    />
-                                ) : (
-                                    <div className="w-full h-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-400">
-                                        No Image
-                                    </div>
-                                )}
-
-                                {/* Overlay Controls */}
-                                <div className="absolute top-4 right-4 flex gap-2">
-                                    <button
-                                        onClick={() => handleToggleStatus(item, 'isSaved')}
-                                        className={`p-2 rounded-xl backdrop-blur-md border shadow-sm transition-all duration-300 ${item.isSaved
-                                            ? "bg-indigo-600 border-indigo-500 text-white opacity-100"
-                                            : "bg-white/80 dark:bg-zinc-900/80 border-white/20 text-zinc-600 dark:text-zinc-400 hover:bg-white dark:hover:bg-zinc-800 opacity-0 group-hover:opacity-100"
-                                            }`}
-                                        title={item.isSaved ? "Bỏ lưu" : "Lưu bài viết"}
-                                    >
-                                        <svg className={`w-5 h-5 ${item.isSaved ? "fill-current" : "fill-none"}`} stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-                                        </svg>
-                                    </button>
-                                    <button
-                                        onClick={() => handleToggleStatus(item, 'isHidden')}
-                                        className="p-2 rounded-xl bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border border-white/20 text-red-500 shadow-sm opacity-0 group-hover:opacity-100 transition-all duration-300 hover:bg-red-500 hover:text-white"
-                                        title="Ẩn bài viết"
-                                    >
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                        </svg>
-                                    </button>
-                                </div>
-
-                                <div className="absolute top-4 left-4">
-                                    <span className="px-3 py-1 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md rounded-full text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-800 shadow-sm">
-                                        {TAB_LABELS[activeTab]}
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Content Section */}
-                            <div className="p-7 flex flex-col flex-1">
-                                <div className="flex items-center gap-2 mb-4">
-                                    <div className={`w-1.5 h-1.5 rounded-full ${item.isSaved ? "bg-indigo-500" : "bg-zinc-300"} animate-pulse`}></div>
-                                    <time className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                                        {item.date}
-                                    </time>
-                                </div>
-
-                                <h3 className="text-xl font-bold mb-4 line-clamp-2 leading-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-                                    <a href={item.url} target="_blank" rel="noopener noreferrer">
-                                        {item.title}
-                                    </a>
-                                </h3>
-
-                                <p className="text-zinc-600 dark:text-zinc-400 text-sm line-clamp-[10] mb-8 flex-1 whitespace-pre-line leading-relaxed">
-                                    {item.summary}
-                                </p>
-
-                                <div className="mt-auto pt-6 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-                                    <a
-                                        href={item.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center text-sm font-bold text-zinc-900 dark:text-zinc-50 group/link bg-zinc-50 dark:bg-zinc-800 px-4 py-2 rounded-lg hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 transition-all shadow-sm"
-                                    >
-                                        Đọc chi tiết
-                                        <svg className="ml-2 w-4 h-4 transition-transform group-hover/link:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                                        </svg>
-                                    </a>
-                                </div>
-                            </div>
-                        </article>
+                        <ArticleCard
+                            key={item.url}
+                            item={item}
+                            eager={index < 3}
+                            currentYear={currentYear}
+                            onToggle={handleToggleStatus}
+                        />
                     ))}
                 </div>
             )}
 
-            {/* Main Pagination */}
-            {isNewsTab(activeTab) && totalPages > 1 && (
-                <div className="mt-16 flex items-center justify-center flex-wrap gap-2 md:gap-4">
+            {/* Phân trang chính */}
+            {showPager && (
+                <nav aria-label="Phân trang" className="mt-10 flex items-center justify-center gap-1 sm:gap-2">
                     <button
-                        onClick={goToPrevPage}
+                        type="button"
+                        onClick={() => goToPage(currentPage - 1)}
                         disabled={currentPage === 1}
-                        className="px-4 py-2.5 sm:px-6 sm:py-3 rounded-xl sm:rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 font-bold text-sm disabled:opacity-40 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all shadow-sm flex items-center gap-2"
+                        className={`flex h-10 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition-colors hover:border-zinc-300 disabled:pointer-events-none disabled:opacity-40 sm:px-4 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 ${FOCUS_RING}`}
                     >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                        </svg>
+                        <Chevron dir="left" />
                         <span className="hidden sm:inline">Trang trước</span>
                     </button>
 
-                    <div className="flex items-center gap-1 sm:gap-2">
-                        {getPaginationItems(currentPage, totalPages).map((item, index) => {
-                            if (item === '...') {
-                                return (
-                                    <span key={`dots-${index}`} className="w-8 h-8 sm:w-12 sm:h-12 flex items-center justify-center text-zinc-400 font-bold">
-                                        ...
-                                    </span>
-                                );
-                            }
-                            const page = item as number;
-                            return (
-                                <button
-                                    key={page}
-                                    onClick={() => goToPage(page)}
-                                    className={`w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl font-bold text-sm transition-all duration-300 ${currentPage === page
-                                        ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 transform scale-110 ring-2 ring-indigo-600 ring-offset-2 dark:ring-offset-zinc-950"
-                                        : "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-indigo-500 hover:text-indigo-600 shadow-sm"
-                                        }`}
-                                >
-                                    {page}
-                                </button>
-                            );
-                        })}
-                    </div>
+                    {getPaginationItems(currentPage, totalPages).map((p, index) =>
+                        p === '...' ? (
+                            <span key={`dots-${index}`} className="grid h-10 w-6 place-items-center text-zinc-400 sm:w-8" aria-hidden="true">…</span>
+                        ) : (
+                            <button
+                                key={p}
+                                type="button"
+                                onClick={() => goToPage(p as number)}
+                                aria-current={currentPage === p ? "page" : undefined}
+                                aria-label={`Trang ${p}`}
+                                className={`grid h-10 min-w-10 place-items-center rounded-lg px-2 text-sm font-semibold tabular-nums transition-colors ${FOCUS_RING} ${currentPage === p
+                                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                                    : "text-zinc-600 hover:bg-zinc-200/70 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                    }`}
+                            >
+                                {p}
+                            </button>
+                        )
+                    )}
 
                     <button
-                        onClick={goToNextPage}
+                        type="button"
+                        onClick={() => goToPage(currentPage + 1)}
                         disabled={currentPage === totalPages}
-                        className="px-4 py-2.5 sm:px-6 sm:py-3 rounded-xl sm:rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 font-bold text-sm disabled:opacity-40 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all shadow-sm flex items-center gap-2"
+                        className={`flex h-10 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition-colors hover:border-zinc-300 disabled:pointer-events-none disabled:opacity-40 sm:px-4 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 ${FOCUS_RING}`}
                     >
                         <span className="hidden sm:inline">Trang sau</span>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
+                        <Chevron dir="right" />
                     </button>
-                </div>
+                </nav>
             )}
 
             {/* Trang chi gui phan dau; bai cu hon tai khi can */}
             {isNewsTab(activeTab) && !showSavedOnly && hasMore[activeTab as CategoryKey] && currentPage >= totalPages && (
-                <div className="mt-10 flex justify-center">
+                <div className="mt-8 flex justify-center">
                     <button
+                        type="button"
                         onClick={handleLoadMore}
                         disabled={loadingMore}
-                        className="px-6 py-3 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 font-bold text-sm text-zinc-600 dark:text-zinc-400 hover:border-indigo-500 hover:text-indigo-600 disabled:opacity-50 transition-all shadow-sm"
+                        className={`rounded-lg border border-zinc-200 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-700 transition-colors hover:border-zinc-300 disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 ${FOCUS_RING}`}
                     >
-                        {loadingMore ? "Đang tải..." : "Tải thêm bài cũ hơn"}
+                        {loadingMore ? "Đang tải…" : "Tải thêm bài cũ hơn"}
                     </button>
                 </div>
             )}
         </>
+    );
+}
+
+interface ArticleCardProps {
+    item: NewsItem;
+    /** 3 thẻ đầu nằm trong màn hình đầu tiên - tải ảnh ngay */
+    eager: boolean;
+    currentYear?: number;
+    onToggle: (item: NewsItem, field: 'isHidden' | 'isSaved') => void;
+}
+
+function ArticleCard({ item, eager, currentYear, onToggle }: ArticleCardProps) {
+    const [imageFailed, setImageFailed] = useState(false);
+    const source = sourceLabel(item.url);
+    const showImage = item.thumbnail && !imageFailed;
+
+    // Nút lưu/ẩn: hiện khi rê chuột hoặc focus; máy cảm ứng (không có hover) luôn hiện
+    const revealOnHover = "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100";
+
+    return (
+        <article className="group relative flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white transition-[border-color,box-shadow] duration-200 hover:border-zinc-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700">
+            <div className="relative aspect-[16/9] overflow-hidden bg-zinc-100 dark:bg-zinc-800">
+                {showImage ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- ảnh từ nhiều báo, không qua next/image
+                    <img
+                        src={item.thumbnail}
+                        alt=""
+                        loading={eager ? "eager" : "lazy"}
+                        decoding="async"
+                        onError={() => setImageFailed(true)}
+                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] motion-reduce:transition-none"
+                    />
+                ) : (
+                    <div className="grid h-full w-full place-items-center text-sm font-semibold text-zinc-400">
+                        {source || "Không có ảnh"}
+                    </div>
+                )}
+
+                {/* z-10: nổi trên link phủ toàn thẻ */}
+                <div className="absolute right-3 top-3 z-10 flex gap-1.5">
+                    <button
+                        type="button"
+                        onClick={() => onToggle(item, 'isSaved')}
+                        aria-pressed={item.isSaved}
+                        aria-label={item.isSaved ? "Bỏ lưu bài viết" : "Lưu bài viết"}
+                        title={item.isSaved ? "Bỏ lưu" : "Lưu bài viết"}
+                        className={`grid h-9 w-9 place-items-center rounded-lg shadow-sm backdrop-blur-md transition-[opacity,background-color,color] duration-150 ${FOCUS_RING} ${item.isSaved
+                            ? "bg-red-700 text-white opacity-100"
+                            : `bg-white/90 text-zinc-700 hover:bg-white hover:text-zinc-950 dark:bg-zinc-900/90 dark:text-zinc-300 ${revealOnHover}`
+                            }`}
+                    >
+                        <BookmarkIcon filled={item.isSaved} />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => onToggle(item, 'isHidden')}
+                        aria-label="Ẩn bài viết"
+                        title="Ẩn bài viết"
+                        className={`grid h-9 w-9 place-items-center rounded-lg bg-white/90 text-zinc-700 shadow-sm backdrop-blur-md transition-[opacity,background-color,color] duration-150 hover:bg-zinc-900 hover:text-white dark:bg-zinc-900/90 dark:text-zinc-300 dark:hover:bg-zinc-100 dark:hover:text-zinc-900 ${FOCUS_RING} ${revealOnHover}`}
+                    >
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div className="flex flex-1 flex-col p-4 sm:p-5">
+                <div className="mb-2 flex items-center gap-2 text-xs">
+                    {source && <span className="font-semibold text-red-700 dark:text-red-400">{source}</span>}
+                    {source && <span className="text-zinc-300 dark:text-zinc-600" aria-hidden="true">•</span>}
+                    <time className="tabular-nums text-zinc-500 dark:text-zinc-400">{shortArticleDate(item.date, currentYear)}</time>
+                </div>
+
+                <h2 className="mb-2 text-[17px] font-bold leading-snug text-zinc-950 dark:text-zinc-50">
+                    {/* after: phủ cả thẻ -> bấm đâu trên thẻ cũng mở bài */}
+                    <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="line-clamp-3 decoration-red-700/40 decoration-2 underline-offset-4 after:absolute after:inset-0 after:content-[''] group-hover:underline focus-visible:outline-none dark:decoration-red-400/50"
+                    >
+                        {item.title}
+                    </a>
+                </h2>
+
+                <p className="line-clamp-5 whitespace-pre-line text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                    {item.summary}
+                </p>
+            </div>
+            {/* Viền focus cho link phủ thẻ (outline trên <a> bị overflow-hidden cắt) */}
+            <span className="pointer-events-none absolute inset-0 rounded-xl ring-red-700 ring-offset-0 group-has-[a:focus-visible]:ring-2 dark:ring-red-400" aria-hidden="true" />
+        </article>
     );
 }

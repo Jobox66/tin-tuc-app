@@ -1,20 +1,19 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Be_Vietnam_Pro } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+// Geist khong co bo dau tieng Viet (cac chu nhu "ĩ", "ự" roi ve font du phong,
+// lech net). Be Vietnam Pro ve rieng cho tieng Viet.
+const beVietnam = Be_Vietnam_Pro({
+  variable: "--font-be-vietnam",
+  subsets: ["latin", "vietnamese"],
+  weight: ["400", "500", "600", "700", "800"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "App Tin Tuc",
-  description: "Ứng dụng tổng hợp tin tức tự động",
+  title: "Tin Tức",
+  description: "Tổng hợp tin tức tiếng Việt, cập nhật liên tục và tóm tắt tự động",
 };
 
 export default function RootLayout({
@@ -23,10 +22,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+    <html lang="vi">
+      <body className={`${beVietnam.variable} antialiased`}>
         {children}
       </body>
     </html>
