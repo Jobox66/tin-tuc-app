@@ -1,0 +1,4 @@
+# Skill cua project nay, lay tu kho skill2ai. Moi dong: <skill> = <AI>
+# AI: Claude = Claude Code, Antigravity = Gemini trong Antigravity, GeminiCLI = Gemini CLI
+# Trong project: skill list | skill add <ten> [--claude|--gemini] | skill rm <ten> [--claude|--gemini] | skill update
+impeccable-ui = Claude
