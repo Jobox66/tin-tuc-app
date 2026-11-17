@@ -1,11 +1,15 @@
 import sys
 import json
 import io
+import re
 from newspaper import Article
+from newspaper import nlp as np_nlp
 import nltk
 
-# Force UTF-8 encoding for stdout on Windows
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+if __name__ == "__main__":
+    # Force UTF-8 encoding for stdout on Windows (chi khi chay nhu script,
+    # de file test import duoc ma khong boc lai stdout)
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # Download NLTK data only if not present
 def setup_nltk():
@@ -18,27 +22,71 @@ def setup_nltk():
 
 setup_nltk()
 
+# Dau cau ket thuc doan; doan khong co dau nay (tieu de, chu thich anh...)
+# se bi punkt noi lien voi doan sau.
+TERMINAL = '.!?…:;"”\')»'
+# Chu thich anh/video: "... - Ảnh: Công an cung cấp", "Ảnh: NGUYỄN KHÁNH"
+CAPTION = re.compile(r'(?:^|[-–—(]\s*)(?:Ảnh|Video|Clip|Đồ họa)\s*:', re.IGNORECASE)
+# Duoi ten bao trong <title>: "... - Báo VnExpress", "... | Tuổi Trẻ Online"
+TITLE_SUFFIX = re.compile(r'\s+[-|–]\s+(?:Báo\s+)?(?:VnExpress|Tuổi Trẻ|CafeF|Vietstock)[^-|–]*$', re.IGNORECASE)
+
+
+def _norm(s):
+    return re.sub(r'\s+', ' ', s).strip().lower()
+
+
+def prepare_text(title, text):
+    """
+    newspaper.nlp.split_sentences xoa '\\n' KHONG chen dau cach, nen doan khong
+    co dau cau cuoi dinh lien doan sau ("...Ngoại ngữTrượt chuyên Anh",
+    "Ảnh: NGUYỄN KHÁNHNhận lời mời"). O day:
+      - bo doan trung tieu de va doan chu thich anh (khong phai noi dung)
+      - them '.' cho doan thieu dau cau cuoi -> punkt tach dung cau
+      - noi doan bang ' \\n' -> sau khi '\\n' bi xoa van con dau cach
+    """
+    t = _norm(TITLE_SUFFIX.sub('', title or ''))
+    paras = []
+    for raw in (text or '').split('\n'):
+        p = re.sub(r'\s+', ' ', raw).strip()
+        if not p:
+            continue
+        if t and _norm(p) == t:
+            continue
+        if CAPTION.search(p) and len(p) < 300:
+            continue
+        if p[-1] not in TERMINAL:
+            p += '.'
+        paras.append(p)
+    return ' \n'.join(paras)
+
+
+def build_summary(title, text, max_sents=5):
+    """Chuoi gach dau dong '• ...' tu toi da max_sents cau quan trong nhat."""
+    prepared = prepare_text(title, text)
+    if not prepared:
+        return ""
+    sentences = np_nlp.summarize(title=title or '', text=prepared, max_sents=max_sents) if title else []
+    sentences = [re.sub(r'\s+', ' ', s).strip() for s in sentences]
+    sentences = [s for s in sentences if s]
+    if sentences:
+        return "\n".join(f"• {s}" for s in sentences)
+    # Bai qua ngan / khong co tieu de: lay doan dau
+    snippet = re.sub(r'\s+', ' ', prepared).strip()
+    return f"• {snippet[:400]}..." if len(snippet) > 400 else f"• {snippet}"
+
+
 def summarize_article(url):
     try:
         article = Article(url)
         article.download()
         article.parse()
+        # nlp() nap stopwords/keywords ma nlp.summarize can dung
         article.nlp()
-        
+
         # Use top_image for more reliable image extraction
         image_url = article.top_image if article.top_image else ""
-        
-        # newspaper3k summary is usually points-based if article is long enough
-        raw_summary = article.summary if article.summary else ""
-        if raw_summary:
-            # Extract top 5 ranked sentences from newspaper3k's NLP output
-            sentences = [s.strip() for s in raw_summary.split('\n') if s.strip()]
-            top_5 = sentences[:5]
-            summary = "\n".join([f"• {s}" for s in top_5])
-        else:
-            # Fallback for very short articles
-            text_snippet = article.text.strip().replace('\n', ' ')
-            summary = f"• {text_snippet[:400]}..." if text_snippet else ""
+
+        summary = build_summary(article.title, article.text)
         
         return {
             "success": True,

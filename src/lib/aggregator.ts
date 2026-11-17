@@ -288,6 +288,7 @@ export async function collectNewArticles(
 
 function cleanSummary(summary: string): string {
     // Remove HTML tags and extra whitespace, then truncate
-    const text = summary.replace(/<[^>]*>?/gm, '').trim();
+    // The thay bang dau cach (khong phai chuoi rong) de "<br>Câu sau" khong dinh chu
+    const text = summary.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
     return text.length > 300 ? `${text.substring(0, 300)}...` : text;
 }
